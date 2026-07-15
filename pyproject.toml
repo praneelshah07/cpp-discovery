@@ -1,0 +1,108 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cpp-ai"
+version = "0.0.1"
+description = "Research-grade platform for computational discovery and optimization of Cell Penetrating Peptides (CPPs)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "CPP Discovery contributors" }]
+keywords = ["bioinformatics", "peptides", "cell-penetrating-peptides", "protein-ml", "drug-discovery"]
+
+# The CORE package is intentionally lightweight: schema, registry, provenance.
+# Heavy scientific/ML stacks live behind optional extras so other labs can
+# `import cpp_ai` without a multi-gigabyte install.
+dependencies = [
+    "numpy>=1.23",
+    "pydantic>=2.5",
+]
+
+[project.optional-dependencies]
+database = ["openpyxl>=3.1"]  # CSV + SQLite use the stdlib; only Excel needs openpyxl
+descriptors = ["biopython>=1.81", "peptides>=0.3"]
+embeddings = [
+    "torch>=2.0",
+    "fair-esm>=2.0",
+    "transformers>=4.35",
+    "sentencepiece>=0.1.99",
+    # Intel macOS caps at torch 2.2.x, which was built against NumPy 1.x and
+    # crashes under NumPy 2. Pin accordingly on that platform only.
+    "numpy<2; platform_system=='Darwin' and platform_machine=='x86_64'",
+]
+ml = ["scikit-learn>=1.3", "xgboost>=2.0", "lightgbm>=4.0"]
+optimization = ["pymoo>=0.6"]
+visualization = ["plotly>=5.18", "matplotlib>=3.7", "scikit-learn>=1.3", "umap-learn>=0.5"]
+webapp = [
+    "streamlit>=1.30",
+    "pandas>=2.0",
+    # Intel macOS lacks a prebuilt pyarrow wheel for newer versions (source
+    # build needs Arrow C++); pin to the last version with an x86_64 mac wheel.
+    "pyarrow<15; platform_system=='Darwin' and platform_machine=='x86_64'",
+]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "hypothesis>=6.90",
+    "mypy>=1.7",
+    "ruff>=0.1",
+]
+# Convenience meta-extra pulling the full scientific stack.
+all = [
+    "cpp-ai[database,descriptors,embeddings,ml,optimization,visualization,webapp]",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+markers = [
+    "slow: tests that load real ML models / large downloads (deselect with '-m \"not slow\"')",
+]
+filterwarnings = [
+    "ignore::sklearn.exceptions.ConvergenceWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+
+# openpyxl ships no type stubs; it is an optional dependency imported lazily.
+[[tool.mypy.overrides]]
+module = ["openpyxl", "openpyxl.*"]
+ignore_missing_imports = true
+
+# biopython (Bio.*) and peptides ship no py.typed marker; treat as Any so
+# strict-mode "untyped call" errors don't fire for their scientific functions.
+[[tool.mypy.overrides]]
+module = ["Bio.*", "peptides", "peptides.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+# Heavy ML deps live behind the `embeddings`/`ml` extras and are imported
+# lazily; they may be absent when type-checking, and ship no type stubs.
+[[tool.mypy.overrides]]
+module = [
+    "torch", "torch.*", "esm", "esm.*", "transformers", "transformers.*",
+    "sklearn", "sklearn.*", "xgboost", "xgboost.*", "lightgbm", "lightgbm.*",
+    "plotly", "plotly.*", "matplotlib", "matplotlib.*", "umap", "umap.*",
+    "streamlit", "streamlit.*", "pandas", "pandas.*",
+]
+ignore_missing_imports = true
+
+# The Streamlit entrypoint is thin glue over the untyped streamlit API; relax
+# the strict decorator/return checks there (the logic lives in tested modules).
+[[tool.mypy.overrides]]
+module = ["cpp_ai.webapp.app"]
+disallow_untyped_decorators = false
+warn_return_any = false
