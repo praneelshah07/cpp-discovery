@@ -10,22 +10,33 @@ from __future__ import annotations
 
 import importlib.util
 import pickle
+import sys
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-import streamlit as st
+# --- import bootstrap (must precede any cpp_ai import) --------------------- #
+# Make the source tree importable directly, independent of how the package was
+# installed. Streamlit Cloud can leave a stale non-editable `cpp_ai` in
+# site-packages that predates newly-added subpackages (e.g. cpp_ai.evidence);
+# prepending src/ ensures the live source — which always has every module —
+# wins on sys.path.
+_SRC = Path(__file__).resolve().parents[2]
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
-from cpp_ai.evidence import EvidenceLedger
-from cpp_ai.generation import net_charge
-from cpp_ai.scoring import (
+import pandas as pd  # noqa: E402
+import streamlit as st  # noqa: E402
+
+from cpp_ai.evidence import EvidenceLedger  # noqa: E402
+from cpp_ai.generation import net_charge  # noqa: E402
+from cpp_ai.scoring import (  # noqa: E402
     CLWOX_CRITICAL,
     AlgaeFitScorer,
     CriticalPositionProfile,
     EvidenceScorer,
 )
-from cpp_ai.screening import load_cppsite3_library
-from cpp_ai.screening.candidate import ScreenCandidate
+from cpp_ai.screening import load_cppsite3_library  # noqa: E402
+from cpp_ai.screening.candidate import ScreenCandidate  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DATA = _ROOT / "data" / "raw" / "cppsite3_api.json"
