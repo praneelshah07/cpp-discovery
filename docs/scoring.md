@@ -45,6 +45,32 @@ candidates — with a smooth risk function:
 membrane-lytic bump. It **down-weights** rather than excludes, and is exposed as
 `charge_risk`. This is a heuristic prior, **not** a hemolysis prediction.
 
+## Context fitness — the algae-delivery axis (`context.py`)
+
+`AlgaeFitScorer` is the first place the platform's *empirical* knowledge feeds
+the ranking. It answers a question anchor-resemblance cannot: **is this the kind
+of CPP that actually works in microalgae?** The evidence ledger
+(`cpp_ai.evidence`) shows the mammalian and algae answers diverge — pure-cationic
+R9 wins in mammalian cells but loses to amphipathic pVEC in *Chlamydomonas*.
+
+- **Data-driven, not hardcoded.** `AlgaeFitScorer.from_ledger(ledger, library)`
+  reads the ledger's winner-vs-non-winner descriptor contrasts for the algae
+  context and turns their *direction* into weights on library-standardized
+  descriptors. As the ledger grows, the weights update — the iteration loop.
+- **Tiny-n guardrails.** Weights are `tanh`-capped so a small-sample contrast
+  cannot dominate; only contrasts clearing `min_effect` are used; the score is
+  neutral (0.5) when no evidence applies, and `explain()` exposes every term.
+- **What it learned from the seed:** amphipathicity (helical µH), aliphatic
+  index, hydrophobic fraction and GRAVY **up**; aromaticity and pure cationic
+  fraction **down**. Validated against ground truth — pVEC-R6A 0.96, pVEC 0.86,
+  R9 0.00.
+- **Wiring.** `EvidenceScorer(..., algae_fit_scorer=fit)` exposes `algae_fit` as
+  its own axis and folds it into `shortlist_score` as one equal term. Off by
+  default; the app's "Optimize for algae delivery" toggle turns it on.
+
+This is a hypothesis-sharpener from a small curated dataset, not a validated
+algae predictor — the UI says so.
+
 ## In the app
 
 The **"Evidence profile (multi-axis)"** mode (now the default) shows the full

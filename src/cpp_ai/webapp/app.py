@@ -16,13 +16,20 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from cpp_ai.evidence import EvidenceLedger
 from cpp_ai.generation import net_charge
-from cpp_ai.scoring import CLWOX_CRITICAL, CriticalPositionProfile, EvidenceScorer
+from cpp_ai.scoring import (
+    CLWOX_CRITICAL,
+    AlgaeFitScorer,
+    CriticalPositionProfile,
+    EvidenceScorer,
+)
 from cpp_ai.screening import load_cppsite3_library
 from cpp_ai.screening.candidate import ScreenCandidate
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DATA = _ROOT / "data" / "raw" / "cppsite3_api.json"
+_LEDGER = _ROOT / "data" / "curated" / "cpp_evidence_ledger.json"
 _EMB_CACHE = _ROOT / "data" / "processed" / "emb_cache"
 
 _PRESETS = {
@@ -59,14 +66,30 @@ def _embeddings_available() -> bool:
     )
 
 
+@st.cache_resource(show_spinner=False)
+def _ledger() -> EvidenceLedger:
+    return EvidenceLedger.load(_LEDGER) if _LEDGER.exists() else EvidenceLedger()
+
+
+@st.cache_resource(show_spinner=False)
+def _algae_fit() -> AlgaeFitScorer | None:
+    led = _ledger()
+    if not len(led):
+        return None
+    return AlgaeFitScorer.from_ledger(led, [c.sequence for c in _library()])
+
+
 @st.cache_resource(show_spinner=True)
-def _scorer(use_embeddings: bool) -> EvidenceScorer:
+def _scorer(use_embeddings: bool, use_algae_fit: bool) -> EvidenceScorer:
     service = None
     if use_embeddings:
         from cpp_ai.embeddings import ESM2Embedder, EmbeddingCache, EmbeddingService
 
         service = EmbeddingService(ESM2Embedder("esm2_t6_8M"), EmbeddingCache(str(_EMB_CACHE)))
-    return EvidenceScorer(_library(), embedding_service=service, classifier=_classifier())
+    fit = _algae_fit() if use_algae_fit else None
+    return EvidenceScorer(
+        _library(), embedding_service=service, classifier=_classifier(), algae_fit_scorer=fit
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -97,6 +120,8 @@ def _table(profiles: list[Any]) -> pd.DataFrame:
             "Shared motif": _pct(p.motif_local),
             "Sequence identity": _pct(p.global_identity),
         }
+        if p.algae_fit is not None:
+            row["Algae-delivery fit"] = _pct(p.algae_fit)
         if p.cpp_probability is not None:
             row["CPP likelihood"] = _pct(p.cpp_probability)
         if p.critical_position is not None:
@@ -154,6 +179,17 @@ choice = st.sidebar.selectbox("Anchor peptide", list(_PRESETS))
 anchor = st.sidebar.text_input("Sequence (one-letter)", value=_PRESETS[choice]).strip().upper()
 n_show = st.sidebar.slider("How many recommendations", 5, 40, 15)
 low_tox = st.sidebar.checkbox("Prioritize lower-toxicity candidates", value=True)
+algae_mode = st.sidebar.checkbox(
+    "Optimize for algae delivery (evidence-based)",
+    value=False,
+    help=(
+        "Re-rank using the physicochemical profile that actually worked in "
+        "microalgae in the literature — amphipathicity/hydrophobicity up, "
+        "pure cationic charge and aromaticity down. Learned from the curated "
+        "evidence ledger, not hardcoded."
+    ),
+    disabled=_algae_fit() is None,
+)
 
 with st.sidebar.expander("Advanced"):
     scaffold = st.checkbox("Scaffold mode (score key residues W6/T14 vs ClWOX)", value=False)
@@ -185,7 +221,17 @@ if scaffold:
     )
 
 with st.spinner("Finding and scoring similar CPPs…"):
-    profiles = _scorer(use_emb).profile(anchor, critical_profile=crit_profile)
+    profiles = _scorer(use_emb, algae_mode).profile(anchor, critical_profile=crit_profile)
+
+if algae_mode:
+    st.success(
+        "**Algae-delivery mode on.** Ranking now favors the physicochemical "
+        "profile that worked in microalgae (amphipathic + hydrophobic, lower pure "
+        "charge) — the empirical opposite of the generic 'add arginine' prior. "
+        "Derived from a small curated evidence ledger, so treat it as a "
+        "hypothesis-sharpener, not proof.",
+        icon="🌱",
+    )
 
 filtered = []
 for p in profiles:
@@ -212,6 +258,10 @@ with st.expander("ℹ️ What do these columns mean?"):
         "anchor (a shared 'motif')?\n"
         "- **Sequence identity** — overall % of amino acids that match when the two are "
         "lined up end-to-end.\n"
+        "- **Algae-delivery fit** *(algae mode)* — how well the peptide matches the "
+        "physicochemical profile of CPPs that actually worked in microalgae "
+        "(amphipathic/hydrophobic, lower pure charge). Learned from the curated "
+        "evidence ledger; small dataset, so it's a hypothesis-sharpener.\n"
         "- **CPP likelihood** — a trained model's estimate that it's a genuine "
         "cell-penetrating peptide (not how well it enters algae).\n"
         "- **Key-residue match** *(scaffold mode)* — how well it preserves the residues "

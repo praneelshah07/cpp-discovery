@@ -31,6 +31,7 @@ from ..core.schema import Peptide
 from ..screening.candidate import ScreenCandidate
 from ..similarity.features import PeptideFeatures
 from ..similarity.metrics import SequenceIdentity, SmithWaterman
+from .context import AlgaeFitScorer
 from .physchem import BlockSimilarityIndex
 from .positional import CriticalPositionProfile, critical_position_score
 from .safety import assess_safety
@@ -58,6 +59,8 @@ class EvidenceProfile:
     global_identity: float
     embedding: float | None
     critical_position: float | None  # scaffold mode; None if not alignable
+    # context fitness (empirical, from the evidence ledger); None if not enabled
+    algae_fit: float | None
     # CPP plausibility
     cpp_probability: float | None
     # applicability domain
@@ -86,6 +89,8 @@ class EvidenceProfile:
         }
         if self.critical_position is not None:
             rec["critical_position"] = round(self.critical_position, 3)
+        if self.algae_fit is not None:
+            rec["algae_fit"] = round(self.algae_fit, 3)
         if self.embedding is not None:
             rec["embedding_context"] = round(self.embedding, 3)
         if self.cpp_probability is not None:
@@ -121,6 +126,7 @@ class EvidenceScorer:
         embedding_service: object | None = None,
         classifier: object | None = None,
         critical_profile: CriticalPositionProfile | None = None,
+        algae_fit_scorer: "AlgaeFitScorer | None" = None,
         sigma: float = 1.0,
     ) -> None:
         self.library = list(library)
@@ -130,6 +136,7 @@ class EvidenceScorer:
         self._embedding_service = embedding_service
         self._classifier = classifier
         self._critical_profile = critical_profile
+        self._algae_fit_scorer = algae_fit_scorer
 
         # Applicability domain: nearest-neighbor distance in standardized
         # curated-descriptor space (distance to the nearest *other* known CPP).
@@ -192,6 +199,10 @@ class EvidenceScorer:
                 None if crit_profile is None
                 else critical_position_score(crit_profile, cand.sequence)
             )
+            algae_fit = (
+                None if self._algae_fit_scorer is None
+                else self._algae_fit_scorer.score(cand.sequence)
+            )
 
             profiles.append(
                 EvidenceProfile(
@@ -204,6 +215,7 @@ class EvidenceScorer:
                     global_identity=gid,
                     embedding=emb,
                     critical_position=crit,
+                    algae_fit=algae_fit,
                     cpp_probability=cpp,
                     ad_confidence=_ad_confidence(self._nn_distances[i], self._nn_distances),
                     ad_nn_distance=float(self._nn_distances[i]),
@@ -213,17 +225,31 @@ class EvidenceScorer:
                     charge_risk=safety.charge_risk,
                     safety_factor=safety.safety_factor,
                     evidence=evidence_level(cand),
-                    shortlist_score=_shortlist(p.composite, motif, cpp, safety.safety_factor),
+                    shortlist_score=_shortlist(
+                        p.composite, motif, cpp, algae_fit, safety.safety_factor
+                    ),
                 )
             )
         profiles.sort(key=lambda e: e.shortlist_score, reverse=True)
         return profiles[:top_k] if top_k is not None else profiles
 
 
-def _shortlist(physchem: float, motif: float, cpp: float | None, safety_factor: float) -> float:
+def _shortlist(
+    physchem: float,
+    motif: float,
+    cpp: float | None,
+    algae_fit: float | None,
+    safety_factor: float,
+) -> float:
     """Transparent convenience ordering: mean of available resemblance/plausibility
-    axes, scaled by the graded safety factor. All components are exposed."""
+    axes, scaled by the graded safety factor. All components are exposed.
+
+    When context fitness (``algae_fit``) is enabled it joins the mean as an equal
+    axis, so ranking shifts toward the empirical algae-winner profile without any
+    single axis silently dominating."""
     parts = [physchem, motif]
     if cpp is not None:
         parts.append(cpp)
+    if algae_fit is not None:
+        parts.append(algae_fit)
     return float(np.mean(parts)) * safety_factor

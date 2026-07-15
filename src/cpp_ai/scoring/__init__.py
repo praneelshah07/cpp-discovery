@@ -8,6 +8,7 @@ CPP-plausibility, safety, and applicability-domain axes are being added.
 from __future__ import annotations
 
 from .blocks import BIOLOGICAL_BLOCKS, BiologicalBlock, all_block_features
+from .context import AlgaeFitScorer, FitContribution, FitTerm
 from .evidence import EvidenceProfile, EvidenceScorer, evidence_level
 from .physchem import BlockScore, BlockSimilarityIndex, PhyschemProfile
 from .positional import (
@@ -28,6 +29,9 @@ __all__ = [
     "EvidenceProfile",
     "EvidenceScorer",
     "evidence_level",
+    "AlgaeFitScorer",
+    "FitTerm",
+    "FitContribution",
     "charge_risk",
     "assess_safety",
     "SafetyAssessment",
