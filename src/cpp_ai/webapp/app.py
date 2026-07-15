@@ -103,10 +103,17 @@ def _downloads(candidates: list[ScreenCandidate], stem: str) -> None:
 
 
 def _style(df: pd.DataFrame) -> Any:
+    if "toxicity_flag" not in df.columns:
+        return df
+
     def color(v: object) -> str:
         return {"HIGH-RISK": "background-color:#f8d7da", "moderate": "background-color:#fff3cd",
                 "lower": "background-color:#d4edda"}.get(str(v), "")
-    return df.style.applymap(color, subset=["toxicity_flag"])
+
+    styler = df.style
+    # pandas >=2.1 renamed Styler.applymap -> Styler.map (applymap later removed).
+    elementwise = getattr(styler, "map", None) or styler.applymap
+    return elementwise(color, subset=["toxicity_flag"])
 
 
 # --------------------------------------------------------------------------- #
