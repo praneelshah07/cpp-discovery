@@ -5,6 +5,7 @@ Thin layer over cpp_ai.screening. Run:  streamlit run src/cpp_ai/webapp/app.py
 
 from __future__ import annotations
 
+import importlib.util
 import pickle
 from pathlib import Path
 from typing import Any
@@ -121,9 +122,20 @@ if not _DATA.exists():
     st.error(f"CPPsite3 data not found at {_DATA}. Download it first (see docs/data_sources.md).")
     st.stop()
 
+def _embeddings_available() -> bool:
+    return (
+        importlib.util.find_spec("torch") is not None
+        and importlib.util.find_spec("esm") is not None
+    )
+
+
 lib = _library()
 st.sidebar.metric("Library peptides (CPPsite3)", len(lib))
-use_emb = st.sidebar.checkbox("Use ESM-2 embeddings (slower first run)", value=False)
+if _embeddings_available():
+    use_emb = st.sidebar.checkbox("Use ESM-2 embeddings (slower first run)", value=False)
+else:
+    use_emb = False
+    st.sidebar.caption("ESM-2 embeddings unavailable here (torch not installed).")
 anchor = _anchor_input()
 mode = st.sidebar.radio(
     "Mode",

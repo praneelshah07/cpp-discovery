@@ -1,0 +1,12 @@
+# Streamlit Community Cloud runtime dependencies.
+# Deliberately slim: NO torch / fair-esm (ESM-2 embeddings are optional and far
+# too heavy for the free tier). The descriptor, similarity, screening, and
+# scoring paths all run without them. The trailing "." installs the cpp-ai
+# package itself (from pyproject.toml, src-layout) so `import cpp_ai` works.
+streamlit>=1.30
+pandas>=2.0
+pyarrow>=14
+biopython>=1.81
+peptides>=0.3
+scikit-learn>=1.3
+.
