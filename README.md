@@ -15,19 +15,24 @@ optimization of Cell Penetrating Peptides (CPPs)**.
 
 Early development. Built module-by-module with tests and docs at each step.
 
-| Phase | Module | Status |
-|------|--------|--------|
-| — | `core` (schema, registry, provenance, constants) | ✅ built + tested |
-| 1 | `database` (CPPsite3, POSEIDON, CSV/Excel importers) | ✅ built + tested |
-| 2 | `descriptors` (physicochemical + QSAR, ~200 features) | ✅ built + tested |
-| 3 | `embeddings` (ESM-2, ProtT5, cached) | ✅ built + tested |
-| 4 | `similarity` (alignment, embedding, descriptor, composite) | ✅ built + tested |
-| 5 | `prediction` (RF/XGB/LGBM/SVM/NN + calibration + uncertainty) | ✅ built + tested |
-| 6 | `generation` (constrained variants) | ✅ built + tested |
-| 7 | `optimization` (multi-objective / Pareto) | ✅ built + tested |
-| 8 | `ranking` (explainable) | ✅ built + tested |
-| 9 | `visualization` (UMAP/t-SNE, heatmaps, radar) | ✅ built + tested |
-| 10 | `webapp` (Streamlit screening dashboard) | ✅ built + tested |
+| Module | Role | Status |
+|--------|------|--------|
+| `core` (schema, registry, provenance, constants) | foundation | ✅ built + tested |
+| `database` (CPPsite3, POSEIDON, CSV/Excel importers) | data provenance | ✅ built + tested |
+| `descriptors` (physicochemical + QSAR, ~200 features) | features | ✅ built + tested |
+| `embeddings` (ESM-2, ProtT5, cached) | optional features | ✅ built + tested |
+| `similarity` (alignment, embedding, descriptor, composite) | resemblance | ✅ built + tested |
+| `prediction` (RF/LGBM/SVM/NN + calibration + uncertainty) | CPP classifier | ✅ built + tested |
+| `generation` (constrained variants) | sequence utils | ✅ built + tested |
+| `scoring` (block similarity, safety, evidence profile, algae-fit) | ranking core | ✅ built + tested |
+| `evidence` (curated literature ledger + SAR trends) | ground truth | ✅ built + tested |
+| `screening` (library loading, candidates) | app data | ✅ built + tested |
+| `webapp` (Streamlit recommendation app) | product | ✅ built + tested |
+
+> **Scope note.** The `ranking`, `visualization`, and `optimization` (NSGA-II)
+> modules were removed once the product settled into a focused recommendation
+> platform — `scoring` superseded `ranking`, and the app renders no plots or
+> variant-engineering. They remain in git history at tag `pre-prune-0.0.2`.
 
 ## Design principles
 
@@ -36,8 +41,8 @@ Early development. Built module-by-module with tests and docs at each step.
 - **Reproducible.** Immutable raw data, mandatory provenance, content-addressed
   peptide identity.
 - **Lightweight core.** Heavy ML/embedding stacks live behind optional extras.
-- **Explainable by construction.** The ranking layer cannot emit a score
-  without a rationale.
+- **Explainable by construction.** Every recommendation is decomposed into
+  separate, labelled evidence axes rather than one opaque score.
 
 ## Install
 
