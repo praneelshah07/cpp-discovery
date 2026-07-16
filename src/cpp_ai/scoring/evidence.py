@@ -32,6 +32,7 @@ from ..screening.candidate import ScreenCandidate
 from ..similarity.features import PeptideFeatures
 from ..similarity.metrics import SequenceIdentity, SmithWaterman
 from .context import AlgaeFitScorer
+from .insertion import insertion_fit
 from .physchem import BlockSimilarityIndex
 from .positional import CriticalPositionProfile, critical_position_score
 from .safety import assess_safety, membrane_lysis_risk
@@ -60,7 +61,8 @@ class EvidenceProfile:
     global_identity: float
     embedding: float | None
     critical_position: float | None  # scaffold mode; None if not alignable
-    # context fitness (empirical, from the evidence ledger); None if not enabled
+    # membrane-insertion propensity (literature-weighted prior, scoring.insertion);
+    # None if algae scoring is not enabled
     algae_fit: float | None
     # CPP plausibility
     cpp_probability: float | None
@@ -214,9 +216,13 @@ class EvidenceScorer:
                 None if crit_profile is None
                 else critical_position_score(crit_profile, cand.sequence)
             )
+            # Membrane-insertion propensity from a literature-weighted prior
+            # (scoring.insertion). The ledger-fitted AlgaeFitScorer, if present,
+            # now only flags "algae mode" — it is kept for *validation*, not
+            # weight-setting (n≈6 is too small; see docs/scoring.md).
             algae_fit = (
                 None if self._algae_fit_scorer is None
-                else self._algae_fit_scorer.score(cand.sequence)
+                else insertion_fit(cand.sequence)
             )
 
             profiles.append(

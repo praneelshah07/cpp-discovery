@@ -10,6 +10,7 @@ from __future__ import annotations
 from .blocks import BIOLOGICAL_BLOCKS, BiologicalBlock, all_block_features
 from .context import AlgaeFitScorer, FitContribution, FitTerm
 from .evidence import EvidenceProfile, EvidenceScorer, evidence_level
+from .insertion import insertion_fit
 from .physchem import BlockScore, BlockSimilarityIndex, PhyschemProfile
 from .positional import (
     CLWOX_CRITICAL,
@@ -30,6 +31,7 @@ __all__ = [
     "EvidenceProfile",
     "EvidenceScorer",
     "evidence_level",
+    "insertion_fit",
     "AlgaeFitScorer",
     "FitTerm",
     "FitContribution",

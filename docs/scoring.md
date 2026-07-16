@@ -57,7 +57,24 @@ fraction into a 0–1 risk that scores pVEC/pVEC-R6A ≈ 0.25 and TP10/MAP ≈ 0
 Exposed as the `lysis_risk` axis; the pipeline discounts algae-fit by it and can
 filter on it. A prior, **not** a measured hemolysis value.
 
-## Context fitness — the algae-delivery axis (`context.py`)
+## Membrane insertion — a literature-weighted prior (`insertion.py`)
+
+Following a feature-by-feature evidence review (charge / membrane-interaction /
+structural clusters, graded by transferability to algae — *not* by mammalian
+prediction accuracy), the ranking's insertion term is a small, fixed,
+biophysically-defensible combination — **amphipathicity (µH) + helix propensity +
+moderate hydrophobicity, aromatics neutral, charge excluded** — rather than a fit.
+
+Why a prior, not a fit: the n≈6 ledger SAR (`context.py`, below) was too small to
+set weights and had learned two directions that **contradict established membrane
+biophysics** — penalizing aromaticity (Trp is a canonical interfacial anchor that
+*aids* insertion; R7→R7W increases uptake) and rewarding the aliphatic index (a
+thermostability metric redundant with hydrophobicity). The SAR is kept only to
+**validate** the model (`tests/test_validation.py`: known algae winners must
+out-rank losers), and should drive weights again only when the ledger is large
+enough to overrule a biophysical prior.
+
+## Context fitness — the algae-delivery axis (`context.py`, now validation-only)
 
 `AlgaeFitScorer` is the first place the platform's *empirical* knowledge feeds
 the ranking. It answers a question anchor-resemblance cannot: **is this the kind

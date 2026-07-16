@@ -90,10 +90,15 @@ review:
   polycations, so it wrongly learned "less charge is better" and over-rewarded
   neutral peptides). Effect: the top of the list moved from a net-neutral peptide
   to candidates that all sit at +4..+6, where the algae-proven anchors live.
-- **insertion_fit** (`algae_fit`) — the SAR membrane-insertion profile
-  (amphipathicity/hydrophobicity/shape). Charge descriptors are **removed** from
-  this scorer (see `scoring.context._CHARGE_DESCRIPTORS`) so it does not fight the
-  explicit surface term.
+- **insertion_fit** (`scoring.insertion`, stored in `algae_fit`) — a
+  **literature-weighted prior**, not a fit: amphipathicity (saturating µH, 0.5) +
+  helix propensity (soft, 0.2) + moderate hydrophobicity (GRAVY bell, 0.3);
+  **aromatics neutral** (the old n≈6 SAR wrongly penalized them — Trp is a
+  canonical interfacial anchor), charge excluded (handled by surface). The
+  ledger-fitted `AlgaeFitScorer` is **demoted to validation** (`tests/test_validation.py`
+  checks it ranks known algae winners > losers), because n≈6 is too small to set
+  weights. Retrain from data only when the ledger is large enough to overrule a
+  biophysical prior.
 - **(1 − lysis)²** — squared membrane-lysis penalty; transportan drops ~29 → ~8.
 - **fusion_confidence** — modification-awareness folded into the logic (no toggle):
   cloneable 1.0 · terminal cap 0.9 · tracer label 0.8 · functional conjugate 0.4 ·
@@ -106,6 +111,20 @@ review:
 `group_families(profiles, threshold)` returns `FamilyGroup(representative,
 members)` so the UI shows a diverse list of representatives yet can expand any
 scaffold to its ranked variants.
+
+## Cell wall — scoped out of the ranking (deliberately)
+
+The algal glycoprotein cell wall is a real, first-order barrier (small molecules
+cross the intact wall; a ~27 kDa mCherry fusion does not diffuse through
+passively). But it is **not** a per-candidate ranking term, for three reasons:
+(1) for a *fixed* cargo it is a constant across candidates, so it cannot change
+the ordering; (2) the CPP is tiny relative to the cargo, so free-peptide length
+is only a shadow of the real size variable; (3) its one sequence-predictable
+component — charge → adsorption to the anionic wall — is **already** captured by
+`surface_adsorption` (wall and membrane are both net-negative). The
+candidate-specific part (why pVEC chaperones protein across the wall and R9 does
+not) is **empirical** and lives in the ledger. So the wall is surfaced as
+`CELL_WALL_CONTEXT` (a caveat), not a score, and the real fix is more algae data.
 
 ## Modification-awareness (the tested form ≠ the naked sequence)
 

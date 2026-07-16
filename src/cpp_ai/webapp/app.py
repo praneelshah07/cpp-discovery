@@ -30,6 +30,7 @@ from cpp_ai.evidence import EvidenceLedger  # noqa: E402
 from cpp_ai.generation import net_charge  # noqa: E402
 from cpp_ai.scoring import AlgaeFitScorer, EvidenceScorer  # noqa: E402
 from cpp_ai.pipeline import (  # noqa: E402
+    CELL_WALL_CONTEXT,
     explain_profile,
     filter_and_rank,
     group_families,
@@ -158,6 +159,7 @@ st.info(
     "Click any candidate to see its properties and *why* it was ranked where it is.",
     icon="🔬",
 )
+st.caption(CELL_WALL_CONTEXT)
 
 if not _DATA.exists():
     st.error(f"CPPsite3 data not found at {_DATA}. See docs/data_sources.md.")

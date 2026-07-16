@@ -45,6 +45,19 @@ _CLASSIFIER = _ROOT / "data" / "processed" / "cpp_classifier.pkl"
 
 RankBy = Literal["blend", "algae_fit"]
 
+# The algal cell wall is a real, first-order barrier — but for a *fixed* cargo it
+# is a constant across candidates (so it cannot differentiate the ranking), and
+# its one sequence-predictable component (charge → adsorption to the anionic wall)
+# is already captured by surface_adsorption. It is therefore surfaced as context,
+# not a score. See docs/scoring.md (cell-wall scoping).
+CELL_WALL_CONTEXT = (
+    "Context: every candidate must cross the glycoprotein cell wall AND the plasma "
+    "membrane of the target alga. Small molecules cross the intact wall; large "
+    "protein cargo (e.g. a ~27 kDa mCherry fusion) does not diffuse through "
+    "passively and its transit is CPP-chaperone-dependent — best resolved by "
+    "wet-lab data, not by these sequence-only scores."
+)
+
 # Canonical anchors. pVEC is the default: it has real *Chlamydomonas* data,
 # whereas ClWOX is not yet demonstrated in algae (plant vs algal cell-wall
 # chemistry differ), so ClWOX stays available but is not the default.
@@ -91,17 +104,6 @@ def peptide_family(sequence: str) -> str:
     return "Amphipathic/other"
 
 
-# nice display names for the algae-fit descriptors referenced in reasons
-_NICE_DESC = {
-    "hydrophobic_moment_alpha": "amphipathicity",
-    "aliphatic_index": "aliphatic content",
-    "aromaticity": "low aromaticity",
-    "gravy_kyte_doolittle": "hydrophobicity balance",
-    "frac_group_hydrophobic": "hydrophobic fraction",
-    "frac_group_cationic": "moderate charge",
-}
-
-
 @dataclass(frozen=True)
 class Reason:
     """One human-readable reason a candidate was (or wasn't) recommended."""
@@ -133,17 +135,9 @@ def explain_profile(
             f"negative algal surface — poor adsorption (exploratory)", False))
     if profile.algae_fit is not None:
         if profile.algae_fit >= 0.6:
-            extra = ""
-            if fit_scorer is not None:
-                top = sorted(
-                    fit_scorer.explain(profile.sequence),
-                    key=lambda c: c.contribution, reverse=True,
-                )
-                if top and top[0].contribution > 0:
-                    extra = f" (esp. {_NICE_DESC.get(top[0].descriptor, top[0].descriptor)})"
-            r.append(Reason(f"Good membrane-insertion profile{extra}", True))
+            r.append(Reason("Good membrane-insertion profile (amphipathic/hydrophobic)", True))
         elif profile.algae_fit < 0.4:
-            r.append(Reason("Weak membrane-insertion profile", False))
+            r.append(Reason("Weak membrane-insertion profile (little amphipathic character)", False))
     if profile.lysis_risk < 0.3:
         r.append(Reason("Low predicted membrane-lysis (gentle)", True))
     elif profile.lysis_risk > 0.6:
@@ -291,8 +285,9 @@ class AlgaeRecommendation:
             f"filters → showing top {len(shown)}",
             "",
             "> Computational hypotheses for wet-lab testing, **not** algae-uptake "
-            "predictions. The algae-fit signal is learned from a small curated "
-            "evidence ledger and sharpens with new data.",
+            "predictions. Scores are sequence-only priors.",
+            "",
+            f"> {CELL_WALL_CONTEXT}",
             "",
         ]
         if self.algae_mode and self.fit_scorer is not None and self.fit_scorer.is_informative:
@@ -322,6 +317,8 @@ class AlgaeRecommendation:
             "",
             "> Distinct bets for the wet lab, not one ranked list. Computational "
             "hypotheses for testing, **not** algae-uptake predictions.",
+            "",
+            f"> {CELL_WALL_CONTEXT}",
             "",
         ]
         for c in cats:
@@ -355,9 +352,9 @@ def usable_delivery(p: EvidenceProfile) -> float:
 
     - **surface_adsorption** — electrostatic attraction to the negative algal
       surface (no adsorption → no uptake); peaks ~+4..+6, floors neutral peptides.
-    - **insertion_fit** (``algae_fit``) — the SAR membrane-insertion profile
-      (amphipathicity/hydrophobicity/shape), with charge removed so it doesn't
-      fight the explicit surface term.
+    - **insertion_fit** (``algae_fit``) — a literature-weighted membrane-insertion
+      prior (amphipathicity + helix propensity + moderate hydrophobicity; aromatics
+      neutral, charge excluded). Replaces the confounded n≈6 ledger SAR.
     - **(1 − lysis)²** — squared membrane-lysis penalty (per review).
     - **fusion_confidence** — cloneability of the tested form.
 
