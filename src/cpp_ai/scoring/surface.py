@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import math
 
+from ..descriptors import compute_descriptors
 from ..generation import net_charge
 
 _RISE_SLOPE = 1.2
@@ -35,9 +36,16 @@ _FALL_SLOPE = 1.0
 _FALL_MID = 8.5   # toxicity taper begins above ~+7
 _FLOOR = 0.08     # exploratory floor for neutral/negative peptides
 
+# Order-sensitive local-patch weighting. Colloid electrostatics: a *clustered*
+# cationic patch adsorbs to an anionic surface more strongly than the same total
+# charge dispersed. Modest — total charge is still the dominant driver.
+_W_CHARGE = 0.85
+_W_PATCH = 0.15
+_PATCH_REF = 4.0  # a contiguous basic run of ~4 = a strong cationic patch
+
 
 def charge_adsorption(charge: int) -> float:
-    """Adsorption likelihood in [0, 1] from net charge alone (the core term)."""
+    """Adsorption likelihood in [0, 1] from net charge alone (the composition term)."""
     rise = 1.0 / (1.0 + math.exp(-_RISE_SLOPE * (charge - _RISE_MID)))
     fall = 1.0 / (1.0 + math.exp(_FALL_SLOPE * (charge - _FALL_MID)))
     return max(_FLOOR, rise * fall)
@@ -46,7 +54,15 @@ def charge_adsorption(charge: int) -> float:
 def surface_interaction_prior(sequence: str) -> float:
     """Likelihood the peptide adsorbs onto a negatively-charged algal surface.
 
-    Driven by net charge (the dominant electrostatic term). Peaks in the ~+4..+6
-    window; small floor for neutral/negative peptides (exploratory, not zero).
+    Blends the net-charge bell (dominant, composition) with an **order-sensitive**
+    cationic-patch term (a clustered basic run adsorbs harder than dispersed
+    charge). Peaks in the ~+4..+6 charge window; small floor for neutral peptides.
     """
-    return charge_adsorption(net_charge(sequence))
+    from ..core.types import is_canonical_sequence
+
+    charge_term = charge_adsorption(net_charge(sequence))
+    if not is_canonical_sequence(sequence):
+        return charge_term  # patch term needs descriptors; fall back to charge only
+    run = compute_descriptors(sequence, blocks=("arrangement",)).values["longest_basic_run"]
+    patch_term = min(1.0, max(0.0, run) / _PATCH_REF)
+    return _W_CHARGE * charge_term + _W_PATCH * patch_term

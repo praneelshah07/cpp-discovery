@@ -51,11 +51,31 @@ def test_KNOWN_FAILURE_hemolysis_misses_KLA() -> None:
     assert kla.disruption < 0.15  # type: ignore[attr-defined]  # blind spot present
 
 
-def test_KNOWN_FAILURE_scrambled_control_scores_high() -> None:
-    # Composition-invariance: a shuffled pVEC scores like real pVEC because
-    # surface/insertion are composition-driven. Tracked failure.
+def test_pvec_beats_its_scrambles_on_average() -> None:
+    # After the order-sensitive rebuild (Stage 2), native pVEC should out-score the
+    # AVERAGE of its composition-matched scrambles by a clear margin.
+    from cpp_ai.benchmark import scramble_margin
+    assert scramble_margin("LLIILRRRIRKQAHAHSK", n=20) > 5.0
+
+
+def test_membrane_interaction_capacity_is_order_sensitive() -> None:
+    # MIC must change under scrambling (it did not, meaningfully, before Stage 2).
+    import random
+    from cpp_ai.scoring.insertion import membrane_interaction_capacity as mic
+    native = "LLIILRRRIRKQAHAHSK"
+    scr = []
+    for k in range(15):
+        letters = list(native)
+        random.Random(k).shuffle(letters)
+        scr.append(mic("".join(letters)))
+    assert mic(native) > sum(scr) / len(scr)  # native arrangement scores higher
+
+
+def test_RESIDUAL_a_single_adversarial_scramble_can_still_score_high() -> None:
+    # Honest limitation: the AVERAGE margin is positive, but not every individual
+    # scramble falls below native (per review: do not tune to one scramble).
     scr = _by_name()["scrambled-pVEC"]
-    assert scr.usable > 0.3  # type: ignore[attr-defined]  # should be low, currently isn't
+    assert scr.usable > 0.2  # type: ignore[attr-defined]  # this particular shuffle still ranks up
 
 
 def test_separation_is_weak_but_computed() -> None:

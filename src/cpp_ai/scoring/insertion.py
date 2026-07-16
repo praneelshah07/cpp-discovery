@@ -1,30 +1,30 @@
-"""Membrane-insertion propensity — a literature-weighted prior (not a fit).
+"""Membrane-interaction capacity — an **order-sensitive**, literature-weighted prior.
 
-This replaces the ledger-fitted `AlgaeFitScorer` in the ranking. The evidence
-review (docs/scoring.md) showed the n≈6 SAR was too small to *fit* insertion
-weights and had learned two directions that contradict established membrane
-biophysics — an **aromaticity penalty** (wrong: Trp/aromatics are canonical
-interfacial anchors that *aid* insertion) and an **aliphatic-index reward**
-(a thermostability index, redundant with hydrophobicity). So insertion is now a
-small, fixed, biophysically-defensible combination; the ledger is kept only to
-*validate* the model, not to set its weights.
+This is the renamed `insertion_fit`. Per the redesign audit (docs/redesign.md),
+the previous version was only ~50 % order-sensitive: it mixed the (order-sensitive)
+local hydrophobic moment with `helix_fraction` and whole-sequence GRAVY, both of
+which are **composition-only** (invariant under scrambling). That let scrambled
+CPPs score like the native sequence.
 
-The three retained signals, each supported by universal membrane physics:
+The rebuilt term is **order-dominant** — a compositionally-scrambled sequence
+should score meaningfully lower than the native one:
 
-* **Amphipathicity** (Eisenberg helical hydrophobic moment µH) — the segregated
-  hydrophobic face that drives partitioning into the bilayer. Saturating, because
-  *more* amphipathicity mainly buys *more lysis* (handled by the separate lysis
-  term), not more productive insertion.
-* **Helix propensity** — folding into a helix presents that face; kept a *soft*
-  contributor because the functional helix is often membrane-induced, so a
-  sequence/solution prediction is only a weak proxy.
-* **Moderate hydrophobicity** (GRAVY) — some bulk hydrophobicity aids insertion,
-  but the relationship is non-monotonic (too hydrophilic → no insertion; too
-  hydrophobic → aggregation/lysis), so it is a **bell**, not a ramp.
+* **Amphipathic patterning** — the max-local Eisenberg hydrophobic moment (µH over
+  an 11-residue sliding window; order-sensitive). The segregated hydrophobic face
+  that drives bilayer partitioning.
+* **Hydrophobic clustering** — the longest contiguous hydrophobic run
+  (order-sensitive): a coherent apolar segment to anchor into the acyl core.
+* **Moderate bulk hydrophobicity** — a small GRAVY bell (composition), kept only
+  as a minor capacity floor, heavily down-weighted so composition cannot dominate.
 
-Charge is deliberately absent — it is modeled explicitly by `scoring.surface`.
-Aromatics are neutral (no penalty, no strong reward): they aid insertion but are
-dual-use (also lytic), so the lysis term is left to handle their downside.
+`helix_fraction` is **removed** — the audit shows it carries no residue-order
+information (biopython derives it from residue fractions). Charge is absent
+(modeled by `scoring.surface`); aromatics are neutral (dual-use, left to the
+hemolysis/cytotoxicity terms).
+
+**This term is necessary but NOT sufficient for productive delivery** — a peptide
+that engages the membrane may still lyse it or fail to release cargo. It must not
+be read as an internalization or delivery probability.
 """
 
 from __future__ import annotations
@@ -34,32 +34,34 @@ import math
 from ..core.types import is_canonical_sequence
 from ..descriptors import compute_descriptors
 
-# Literature-weighted contributions (sum to 1). Amphipathicity is central to
-# membrane entry (weighted highest); helix propensity is a soft supporter;
-# hydrophobicity is a moderate, non-monotonic term.
-_W_AMPH = 0.5
-_W_HELIX = 0.2
-_W_HYDRO = 0.3
+# Weights (sum to 1). Order-sensitive terms (amphipathic patterning + clustering)
+# hold 0.80 so a composition-matched scramble cannot score like the native peptide.
+_W_AMPH = 0.45      # order-sensitive: max-local hydrophobic moment
+_W_CLUSTER = 0.35   # order-sensitive: contiguous hydrophobic segment
+_W_HYDRO = 0.20     # composition: minor moderate-hydrophobicity capacity floor
 
-_MUH_SAT = 0.5    # µH at which the amphipathicity term saturates (~pVEC level)
-_GRAVY_OPT = 0.0  # GRAVY optimum: amphipathic peptides need not be net-hydrophobic
-_GRAVY_SD = 1.5   # width of the hydrophobicity bell (gentle penalty on extremes)
+_MUH_SAT = 0.6        # µH saturation (gentle, so real µH differences still register)
+_CLUSTER_REF = 6.0    # a contiguous hydrophobic run of ~6 = one+ helical turn's face
+_GRAVY_OPT = 0.0
+_GRAVY_SD = 1.5
 
 
 def membrane_interaction_capacity(sequence: str) -> float:
-    """Membrane-insertion propensity in [0, 1] (literature-weighted prior).
+    """Order-sensitive membrane-interaction capacity in [0, 1].
 
-    Non-canonical sequences (which the descriptor stack cannot score) return 0.0.
+    Necessary-but-not-sufficient for delivery. Non-canonical sequences return 0.0.
     """
     if not is_canonical_sequence(sequence):
         return 0.0
-    d = compute_descriptors(sequence, blocks=("biopython_props", "hydrophobic_moment")).values
-    muh = d["hydrophobic_moment_alpha"]
-    helix = d["helix_fraction"]
-    gravy = d["gravy_kyte_doolittle"]
+    d = compute_descriptors(
+        sequence, blocks=("biopython_props", "hydrophobic_moment", "arrangement")
+    ).values
+    muh = d["hydrophobic_moment_alpha"]              # max-local µH (order-sensitive)
+    run = d["longest_hydrophobic_run"]               # contiguous apolar segment
+    gravy = d["gravy_kyte_doolittle"]                # bulk hydrophobicity (composition)
 
-    amph_term = min(1.0, max(0.0, muh) / _MUH_SAT)      # saturating amphipathicity
-    helix_term = max(0.0, min(1.0, helix))               # soft helix propensity
-    hydro_term = math.exp(-((gravy - _GRAVY_OPT) ** 2) / (2.0 * _GRAVY_SD**2))  # bell
+    amph_term = min(1.0, max(0.0, muh) / _MUH_SAT)
+    cluster_term = min(1.0, max(0.0, run) / _CLUSTER_REF)
+    hydro_term = math.exp(-((gravy - _GRAVY_OPT) ** 2) / (2.0 * _GRAVY_SD**2))
 
-    return _W_AMPH * amph_term + _W_HELIX * helix_term + _W_HYDRO * hydro_term
+    return _W_AMPH * amph_term + _W_CLUSTER * cluster_term + _W_HYDRO * hydro_term
