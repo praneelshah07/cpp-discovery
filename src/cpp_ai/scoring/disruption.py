@@ -18,6 +18,12 @@ high-toxicity one is flagged — not to purge any family.
 trained model is unavailable it falls back to the heuristic
 :func:`cpp_ai.scoring.safety.membrane_lysis_risk`.
 
+**Scope caveat — it is a *hemolysis* prior, not all membrane toxicity.** It
+predicts the RBC-hemolytic phenotype only, so it is **blind to non-hemolytic
+membrane damage** — e.g. KLA/(KLAKLAK)ₙ peptides are mitochondrially toxic /
+pro-apoptotic yet score near-zero here. See docs/benchmark.md: hemolysis is one
+piece of evidence for membrane disruption, not the whole picture.
+
 Retrain with::
 
     python -m cpp_ai.scoring.disruption
