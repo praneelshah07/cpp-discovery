@@ -25,12 +25,15 @@ Retrain with::
 
 from __future__ import annotations
 
+import logging
 import pickle
 from pathlib import Path
 from typing import Any
 
 from ..core.types import is_canonical_sequence
 from ..descriptors import compute_descriptors
+
+logger = logging.getLogger(__name__)
 
 _ROOT = Path(__file__).resolve().parents[3]
 _MODEL_PATH = _ROOT / "data" / "models" / "hemolysis_disruption.pkl"
@@ -67,12 +70,19 @@ def _load_model() -> dict[str, Any] | None:
     if "model" in _cache:
         return _cache["model"]  # type: ignore[no-any-return]
     if not _MODEL_PATH.exists():
+        logger.warning("Hemolysis model not found at %s; using heuristic fallback.", _MODEL_PATH)
         _cache["model"] = None
         return None
     try:
         with open(_MODEL_PATH, "rb") as fh:
             _cache["model"] = pickle.load(fh)
-    except Exception:
+    except Exception as exc:  # e.g. scikit-learn version mismatch on the pickle
+        logger.warning(
+            "Failed to load hemolysis model (%s: %s); using heuristic fallback. "
+            "This usually means a scikit-learn version mismatch — pin the version "
+            "or retrain with `python -m cpp_ai.scoring.disruption`.",
+            type(exc).__name__, exc,
+        )
         _cache["model"] = None
     return _cache["model"]  # type: ignore[no-any-return]
 

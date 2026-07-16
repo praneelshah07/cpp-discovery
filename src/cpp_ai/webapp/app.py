@@ -28,7 +28,11 @@ import streamlit as st  # noqa: E402
 
 from cpp_ai.evidence import EvidenceLedger  # noqa: E402
 from cpp_ai.generation import net_charge  # noqa: E402
-from cpp_ai.scoring import AlgaeFitScorer, EvidenceScorer  # noqa: E402
+from cpp_ai.scoring import (  # noqa: E402
+    AlgaeFitScorer,
+    EvidenceScorer,
+    is_trained_model_available,
+)
 from cpp_ai.pipeline import (  # noqa: E402
     CARGO_CONTEXT,
     CELL_WALL_CONTEXT,
@@ -229,6 +233,14 @@ st.caption(
     "(see the Variants count). ⚠ marks membrane-lytic peptides that may be toxic "
     "and need testing."
 )
+if is_trained_model_available():
+    st.caption("Toxicity axis: **trained membrane-disruption prior** (HemoPI2) ✓")
+else:
+    st.caption(
+        "⚠ Toxicity axis: **heuristic fallback** — the trained model failed to load "
+        "(likely a scikit-learn version mismatch). Disruption scores are the crude "
+        "GRAVY heuristic, not the trained prior."
+    )
 st.dataframe(_lean_table(groups), use_container_width=True, hide_index=True)
 
 # ---- inspect one candidate: properties + why it fits algae + variants ----

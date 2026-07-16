@@ -12,5 +12,9 @@ pandas>=2.0
 pyarrow>=14
 biopython>=1.81
 peptides>=0.3
-scikit-learn>=1.3
+# Pinned to the minor version the committed hemolysis model was trained with —
+# scikit-learn does NOT guarantee pickle compatibility across minor versions, so
+# an older cloud sklearn silently fails to load data/models/hemolysis_disruption.pkl
+# and the toxicity axis falls back to the heuristic. Bump this + retrain together.
+scikit-learn>=1.7,<1.8
 -e .
