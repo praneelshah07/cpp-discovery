@@ -137,7 +137,7 @@ def test_peptide_family_tags() -> None:
 def test_explain_profile_has_reasons() -> None:
     rec = _rec(algae_mode=True, top_k=None)
     pvec_r6a = next(p for p in rec.profiles if p.name == "pVEC-var2")
-    reasons = explain_profile(pvec_r6a, fit_scorer=rec.fit_scorer)
+    reasons = explain_profile(pvec_r6a)
     assert reasons
     assert any(r.positive for r in reasons)  # a gentle amphipath has positives
     # a lytic peptide should carry a negative membrane-lysis reason

@@ -112,9 +112,7 @@ class Reason:
     positive: bool
 
 
-def explain_profile(
-    profile: EvidenceProfile, *, fit_scorer: AlgaeFitScorer | None = None
-) -> list[Reason]:
+def explain_profile(profile: EvidenceProfile) -> list[Reason]:
     """Turn a candidate's scoring axes into plain positive/negative reasons.
 
     This is the "why was this recommended?" panel — it makes the ranking a
@@ -233,7 +231,6 @@ class AlgaeRecommendation:
     profiles: list[EvidenceProfile]
     n_library: int
     n_before_filter: int
-    fit_scorer: AlgaeFitScorer | None
 
     def to_dataframe(self) -> Any:
         """Flat pandas DataFrame, one row per recommended peptide (pandas lazy)."""
@@ -290,11 +287,6 @@ class AlgaeRecommendation:
             f"> {CELL_WALL_CONTEXT}",
             "",
         ]
-        if self.algae_mode and self.fit_scorer is not None and self.fit_scorer.is_informative:
-            prefs = ", ".join(
-                f"{t.descriptor} {t.prefers}" for t in self.fit_scorer.terms
-            )
-            lines += [f"**Algae-fit prefers:** {prefs}", ""]
         header = "| # | peptide | seq | len | chg | algae_fit | lysis | phys | motif | id | tox |"
         sep = "|---|---|---|---|---|---|---|---|---|---|---|"
         lines += [header, sep]
@@ -331,7 +323,7 @@ class AlgaeRecommendation:
                     f"({peptide_family(p.sequence)}, {p.net_charge:+d}, "
                     f"lysis {p.lysis_risk:.2f}, {clone}{af})"
                 )
-                reasons = explain_profile(p, fit_scorer=self.fit_scorer)
+                reasons = explain_profile(p)
                 for rsn in reasons:
                     lines.append(f"    - {'✓' if rsn.positive else '✕'} {rsn.text}")
             lines.append("")
@@ -530,7 +522,6 @@ def recommend_for_algae(
         profiles=kept,
         n_library=len(lib),
         n_before_filter=n_before,
-        fit_scorer=fit,
     )
 
 

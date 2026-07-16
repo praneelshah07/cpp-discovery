@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cpp_ai.screening import ScreenCandidate, charge_toxicity_flag, diversify, to_fasta
+from cpp_ai.screening import ScreenCandidate, charge_toxicity_flag
 
 
 def test_toxicity_flag_thresholds() -> None:
@@ -35,26 +35,3 @@ def test_with_similarity_and_record() -> None:
     assert rec["similarity"] == 0.876
     assert rec["net_charge"] == c.net_charge
     assert rec["toxicity_flag"] == c.toxicity_flag
-
-
-def test_to_fasta() -> None:
-    fasta = to_fasta([ScreenCandidate("KWKLFKKI", name="pep one")])
-    assert fasta.startswith(">pep_one")
-    assert "KWKLFKKI" in fasta
-
-
-def test_diversify_drops_near_duplicates() -> None:
-    cands = [
-        ScreenCandidate("KWKLFKKIRRAA", name="a"),
-        ScreenCandidate("KWKLFKKIRRAA", name="dup"),      # identical
-        ScreenCandidate("DDEEDDEEDDEE", name="b"),         # very different
-    ]
-    kept = diversify(cands, max_jaccard=0.6)
-    seqs = [c.sequence for c in kept]
-    assert "DDEEDDEEDDEE" in seqs
-    assert len(kept) == 2  # the duplicate is dropped
-
-
-def test_diversify_limit() -> None:
-    cands = [ScreenCandidate("A" * (10 + i) + "KWRDE", name=str(i)) for i in range(10)]
-    assert len(diversify(cands, max_jaccard=1.0, limit=3)) == 3

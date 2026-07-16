@@ -91,39 +91,3 @@ class ScreenCandidate:
         }
 
 
-def to_fasta(candidates: list[ScreenCandidate]) -> str:
-    """Serialize candidates to FASTA with annotation-rich headers."""
-    lines: list[str] = []
-    for c in candidates:
-        header = (
-            f">{c.name.replace(' ', '_')} | charge={c.net_charge:+d} "
-            f"tox={c.toxicity_flag} | {c.mechanism[:40]}"
-        )
-        lines.append(header)
-        lines.append(c.sequence)
-    return "\n".join(lines) + ("\n" if lines else "")
-
-
-def _kmers(seq: str, k: int = 3) -> set[str]:
-    return {seq[i : i + k] for i in range(max(0, len(seq) - k + 1))} or {seq}
-
-
-def diversify(
-    candidates: list[ScreenCandidate], *, max_jaccard: float = 0.6, limit: int | None = None
-) -> list[ScreenCandidate]:
-    """Greedily drop near-duplicates (3-mer Jaccard > ``max_jaccard``).
-
-    Input order is preserved as priority (already-ranked lists stay ranked).
-    """
-    kept: list[ScreenCandidate] = []
-    kept_kmers: list[set[str]] = []
-    for c in candidates:
-        km = _kmers(c.sequence)
-        if all(
-            len(km & other) / len(km | other) <= max_jaccard for other in kept_kmers
-        ):
-            kept.append(c)
-            kept_kmers.append(km)
-        if limit is not None and len(kept) >= limit:
-            break
-    return kept

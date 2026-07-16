@@ -43,7 +43,6 @@ from cpp_ai.screening.candidate import ScreenCandidate  # noqa: E402
 _ROOT = Path(__file__).resolve().parents[3]
 _DATA = _ROOT / "data" / "raw" / "cppsite3_api.json"
 _LEDGER = _ROOT / "data" / "curated" / "cpp_evidence_ledger.json"
-_EMB_CACHE = _ROOT / "data" / "processed" / "emb_cache"
 
 _PRESETS = {
     "pVEC-R6A (your construct — algae-proven)": "LLIILARRIRKQAHAHSK",
@@ -86,16 +85,9 @@ def _algae_fit() -> AlgaeFitScorer | None:
 
 
 @st.cache_resource(show_spinner=True)
-def _scorer(use_embeddings: bool, use_algae_fit: bool) -> EvidenceScorer:
-    service = None
-    if use_embeddings:
-        from cpp_ai.embeddings import ESM2Embedder, EmbeddingCache, EmbeddingService
-
-        service = EmbeddingService(ESM2Embedder("esm2_t6_8M"), EmbeddingCache(str(_EMB_CACHE)))
+def _scorer(use_algae_fit: bool) -> EvidenceScorer:
     fit = _algae_fit() if use_algae_fit else None
-    return EvidenceScorer(
-        _library(), embedding_service=service, classifier=_classifier(), algae_fit_scorer=fit
-    )
+    return EvidenceScorer(_library(), classifier=_classifier(), algae_fit_scorer=fit)
 
 
 # --------------------------------------------------------------------------- #
@@ -190,7 +182,7 @@ st.markdown(
 # ---- score (always optimized for algae delivery) ----
 _algae_on = _algae_fit() is not None
 with st.spinner("Scoring the library for algae delivery…"):
-    profiles = _scorer(False, _algae_on).profile(anchor)
+    profiles = _scorer(_algae_on).profile(anchor)
 
 # usable-delivery ranking; keep lytic peptides (warn, don't exclude).
 ranked = filter_and_rank(profiles, anchor, low_toxicity=False, rank_by="algae_fit")
@@ -201,7 +193,7 @@ _LYSIS_WARN = 0.5
 
 
 def _reasons_md(profile: Any) -> str:
-    reasons = explain_profile(profile, fit_scorer=_algae_fit() if _algae_on else None)
+    reasons = explain_profile(profile)
     return "\n".join(f"- {'✓' if r.positive else '✕'} {r.text}" for r in reasons)
 
 
