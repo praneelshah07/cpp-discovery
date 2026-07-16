@@ -35,6 +35,7 @@ from cpp_ai.scoring import (  # noqa: E402
     CriticalPositionProfile,
     EvidenceScorer,
 )
+from cpp_ai.pipeline import RankBy, filter_and_rank  # noqa: E402
 from cpp_ai.screening import load_cppsite3_library  # noqa: E402
 from cpp_ai.screening.candidate import ScreenCandidate  # noqa: E402
 
@@ -201,6 +202,24 @@ algae_mode = st.sidebar.checkbox(
     ),
     disabled=_algae_fit() is None,
 )
+rank_by: RankBy = "blend"
+max_identity: float | None = None
+if algae_mode:
+    if st.sidebar.checkbox(
+        "Rank by algae-fit (most beneficial, not just similar)",
+        value=False,
+        help="Order by the empirical algae-winner profile instead of resemblance "
+        "to the anchor — surfaces peptides that are good for algae even if they "
+        "don't look like your anchor.",
+    ):
+        rank_by = "algae_fit"
+    if st.sidebar.checkbox(
+        "Look beyond close variants of the anchor",
+        value=False,
+        help="Drop candidates that are near-duplicates of the anchor (>60% "
+        "identity), so you see genuinely different scaffolds.",
+    ):
+        max_identity = 0.6
 
 with st.sidebar.expander("Advanced"):
     scaffold = st.checkbox("Scaffold mode (score key residues W6/T14 vs ClWOX)", value=False)
@@ -244,15 +263,11 @@ if algae_mode:
         icon="🌱",
     )
 
-filtered = []
-for p in profiles:
-    if p.sequence == anchor:
-        continue
-    if low_tox and (p.lytic_risk or p.toxicity_flag == "HIGH-RISK"):
-        continue
-    if exclude_homeodomain and ("WFQN" in p.sequence):
-        continue
-    filtered.append(p)
+filtered = filter_and_rank(
+    profiles, anchor, low_toxicity=low_tox, max_identity=max_identity, rank_by=rank_by
+)
+if exclude_homeodomain:
+    filtered = [p for p in filtered if "WFQN" not in p.sequence]
 filtered = filtered[:n_show]
 
 st.subheader(f"Top {len(filtered)} recommended peptides")
