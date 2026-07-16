@@ -8,7 +8,13 @@ trackers so a future change that fixes (or breaks) them is visible.
 
 from __future__ import annotations
 
-from cpp_ai.benchmark import BENCHMARK_PANEL, run_benchmark, separation_auc
+from cpp_ai.benchmark import (
+    BENCHMARK_PANEL,
+    benchmark_metrics,
+    run_benchmark,
+    scramble_margin,
+    separation_auc,
+)
 
 
 def _by_name() -> dict[str, object]:
@@ -57,3 +63,17 @@ def test_separation_is_weak_but_computed() -> None:
     # a passing threshold — that would be dishonest today).
     auc = separation_auc(run_benchmark())
     assert 0.4 <= auc <= 1.0
+
+
+def test_metrics_report_shape() -> None:
+    m = benchmark_metrics()
+    assert set(m) == {"separation_auc", "ranks", "scramble_margin"}
+    assert "KLA (KLAKLAK)2" in m["ranks"]  # type: ignore[operator]
+    assert set(m["scramble_margin"]) == {"pVEC", "Penetratin", "TAT"}  # type: ignore[arg-type]
+
+
+def test_scramble_margin_reproducible() -> None:
+    # seeded, so the reported margin is stable across runs
+    a = scramble_margin("LLIILRRRIRKQAHAHSK", n=10, base_seed=0)
+    b = scramble_margin("LLIILRRRIRKQAHAHSK", n=10, base_seed=0)
+    assert a == b

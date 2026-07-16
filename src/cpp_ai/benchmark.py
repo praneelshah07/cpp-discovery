@@ -24,6 +24,7 @@ Run:  ``python -m cpp_ai.benchmark``
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from typing import Literal
 
@@ -113,6 +114,47 @@ def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs) if xs else float("nan")
 
 
+# Sequence-dependent CPPs that *should* show a native-over-scramble margin.
+_SCRAMBLE_TARGETS = (
+    ("pVEC", "LLIILRRRIRKQAHAHSK"),
+    ("Penetratin", "RQIKIWFQNRRMKWKK"),
+    ("TAT", "YGRKKRRQRRR"),
+)
+
+
+def _scramble(seq: str, seed: int) -> str:
+    letters = list(seq)
+    random.Random(seed).shuffle(letters)
+    return "".join(letters)
+
+
+def scramble_margin(sequence: str, *, n: int = 15, base_seed: int = 0) -> float:
+    """native usable − mean(scramble usable), ×100. Should be clearly positive for a
+    sequence-dependent CPP; ~0 or negative means the model ignores residue order."""
+    native = _usable(
+        surface_adsorption(sequence), insertion_fit(sequence), membrane_disruption_prior(sequence)
+    )
+    scr = []
+    for k in range(n):
+        s = _scramble(sequence, base_seed + k)
+        scr.append(_usable(surface_adsorption(s), insertion_fit(s), membrane_disruption_prior(s)))
+    return (native - _mean(scr)) * 100.0
+
+
+def benchmark_metrics() -> dict[str, object]:
+    """The metric set every scoring change must report (see docs/redesign.md, F)."""
+    results = run_benchmark()
+    rank = {r.name: i for i, r in enumerate(results, 1)}
+    key = ("KLA (KLAKLAK)2", "Melittin", "MAP", "Brevinin-2R", "Buforin II",
+           "pVEC", "Penetratin", "TAT", "MPG")
+    metrics: dict[str, object] = {
+        "separation_auc": round(separation_auc(results), 3),
+        "ranks": {n: rank[n] for n in key if n in rank},
+        "scramble_margin": {n: round(scramble_margin(s), 1) for n, s in _SCRAMBLE_TARGETS},
+    }
+    return metrics
+
+
 def main() -> None:
     results = run_benchmark()
     print(f"{'rank':>4} {'peptide':16s} {'class':11s} "
@@ -122,7 +164,10 @@ def main() -> None:
               f"{r.surface:5.2f} {r.insertion:5.2f} {r.disruption:5.2f} {r.usable * 100:7.1f}")
     for c in ("good_cpp", "disruptive", "control"):
         print(f"mean USABLE [{c}]: {_mean([r.usable for r in results if r.category == c]) * 100:.1f}")
-    print(f"good-vs-disruptive separation AUC: {separation_auc(results):.2f}  (0.5 = none)")
+    m = benchmark_metrics()
+    print(f"\ngood-vs-disruptive separation AUC: {m['separation_auc']}  (0.5 = none)")
+    print(f"native-over-scramble margin: {m['scramble_margin']}  (want clearly positive)")
+    print(f"key ranks (of {len(results)}): {m['ranks']}")
 
 
 if __name__ == "__main__":
