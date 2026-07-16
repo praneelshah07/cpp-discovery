@@ -12,7 +12,7 @@ polycations, so it spuriously concluded "less charge is better" and over-rewarde
 neutral peptides. We therefore model charge **explicitly** here rather than
 letting the (confounded) SAR handle it.
 
-`surface_adsorption` is a bell in net charge, the product of two real processes:
+`surface_interaction_prior` is a bell in net charge, the product of two real processes:
 
 * a **rise** with positive charge (attraction to the negative surface), and
 * a **taper** above ~+8 (over-adsorption → membrane disruption / toxicity),
@@ -43,7 +43,7 @@ def charge_adsorption(charge: int) -> float:
     return max(_FLOOR, rise * fall)
 
 
-def surface_adsorption(sequence: str) -> float:
+def surface_interaction_prior(sequence: str) -> float:
     """Likelihood the peptide adsorbs onto a negatively-charged algal surface.
 
     Driven by net charge (the dominant electrostatic term). Peaks in the ~+4..+6

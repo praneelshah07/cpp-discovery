@@ -28,9 +28,9 @@ import random
 from dataclasses import dataclass
 from typing import Literal
 
-from .scoring.disruption import membrane_disruption_prior
-from .scoring.insertion import insertion_fit
-from .scoring.surface import surface_adsorption
+from .scoring.disruption import hemolysis_prior
+from .scoring.insertion import membrane_interaction_capacity
+from .scoring.surface import surface_interaction_prior
 
 Category = Literal["good_cpp", "disruptive", "control"]
 
@@ -89,9 +89,9 @@ def run_benchmark() -> list[BenchmarkResult]:
     """Score the panel and return results sorted by usable-delivery (desc)."""
     out: list[BenchmarkResult] = []
     for p in BENCHMARK_PANEL:
-        s = surface_adsorption(p.sequence)
-        i = insertion_fit(p.sequence)
-        d = membrane_disruption_prior(p.sequence)
+        s = surface_interaction_prior(p.sequence)
+        i = membrane_interaction_capacity(p.sequence)
+        d = hemolysis_prior(p.sequence)
         out.append(BenchmarkResult(p.name, p.category, s, i, d, _usable(s, i, d), p.note))
     out.sort(key=lambda r: r.usable, reverse=True)
     return out
@@ -132,12 +132,12 @@ def scramble_margin(sequence: str, *, n: int = 15, base_seed: int = 0) -> float:
     """native usable − mean(scramble usable), ×100. Should be clearly positive for a
     sequence-dependent CPP; ~0 or negative means the model ignores residue order."""
     native = _usable(
-        surface_adsorption(sequence), insertion_fit(sequence), membrane_disruption_prior(sequence)
+        surface_interaction_prior(sequence), membrane_interaction_capacity(sequence), hemolysis_prior(sequence)
     )
     scr = []
     for k in range(n):
         s = _scramble(sequence, base_seed + k)
-        scr.append(_usable(surface_adsorption(s), insertion_fit(s), membrane_disruption_prior(s)))
+        scr.append(_usable(surface_interaction_prior(s), membrane_interaction_capacity(s), hemolysis_prior(s)))
     return (native - _mean(scr)) * 100.0
 
 

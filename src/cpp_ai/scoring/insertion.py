@@ -46,7 +46,7 @@ _GRAVY_OPT = 0.0  # GRAVY optimum: amphipathic peptides need not be net-hydropho
 _GRAVY_SD = 1.5   # width of the hydrophobicity bell (gentle penalty on extremes)
 
 
-def insertion_fit(sequence: str) -> float:
+def membrane_interaction_capacity(sequence: str) -> float:
     """Membrane-insertion propensity in [0, 1] (literature-weighted prior).
 
     Non-canonical sequences (which the descriptor stack cannot score) return 0.0.

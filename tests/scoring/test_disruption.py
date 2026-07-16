@@ -4,17 +4,17 @@ from __future__ import annotations
 
 from cpp_ai.scoring.disruption import (
     is_trained_model_available,
-    membrane_disruption_prior,
+    hemolysis_prior,
 )
 
 
 def test_bounded() -> None:
     for seq in ("LLIILRRRIRKQAHAHSK", "GIGAVLKVLTTGLPALISWIKRKRQQ", "YGRKKRRQRRR"):
-        assert 0.0 <= membrane_disruption_prior(seq) <= 1.0
+        assert 0.0 <= hemolysis_prior(seq) <= 1.0
 
 
 def test_non_canonical_is_zero() -> None:
-    assert membrane_disruption_prior("LLIILBXZ") == 0.0
+    assert hemolysis_prior("LLIILBXZ") == 0.0
 
 
 def test_lytic_ranked_above_gentle() -> None:
@@ -23,8 +23,8 @@ def test_lytic_ranked_above_gentle() -> None:
     # is validated separately in test_lysis.)
     if not is_trained_model_available():
         return
-    melittin = membrane_disruption_prior("GIGAVLKVLTTGLPALISWIKRKRQQ")
-    pvec = membrane_disruption_prior("LLIILRRRIRKQAHAHSK")
+    melittin = hemolysis_prior("GIGAVLKVLTTGLPALISWIKRKRQQ")
+    pvec = hemolysis_prior("LLIILRRRIRKQAHAHSK")
     assert melittin > 0.7  # trained model catches melittin (heuristic did not)
     assert pvec < 0.3
     assert melittin > pvec
@@ -35,5 +35,5 @@ def test_fallback_when_no_model(monkeypatch) -> None:
     import cpp_ai.scoring.disruption as disruption
 
     monkeypatch.setattr(disruption, "_cache", {"model": None})
-    val = disruption.membrane_disruption_prior("KLALKLALKALKAALKLA")
+    val = disruption.hemolysis_prior("KLALKLALKALKAALKLA")
     assert 0.0 <= val <= 1.0

@@ -32,12 +32,12 @@ from ..screening.candidate import ScreenCandidate
 from ..similarity.features import PeptideFeatures
 from ..similarity.metrics import SequenceIdentity, SmithWaterman
 from .context import AlgaeFitScorer
-from .insertion import insertion_fit
-from .disruption import membrane_disruption_prior
+from .insertion import membrane_interaction_capacity
+from .disruption import hemolysis_prior
 from .physchem import BlockSimilarityIndex
 from .positional import CriticalPositionProfile, critical_position_score
 from .safety import assess_safety
-from .surface import surface_adsorption
+from .surface import surface_interaction_prior
 
 
 def evidence_level(candidate: ScreenCandidate) -> str:
@@ -76,7 +76,7 @@ class EvidenceProfile:
     lytic_risk: bool
     charge_risk: float
     lysis_risk: float  # membrane-disruption prior (trained on HemoPI2), 0=gentle
-    surface_adsorption: float  # electrostatic adsorption to the negative algal surface
+    surface_interaction_prior: float  # electrostatic adsorption to the negative algal surface
     safety_factor: float
     # evidence quality
     evidence: str
@@ -111,7 +111,7 @@ class EvidenceProfile:
             "net_charge": self.net_charge,
             "charge_risk": round(self.charge_risk, 2),
             "lysis_risk": round(self.lysis_risk, 2),
-            "surface_adsorption": round(self.surface_adsorption, 2),
+            "surface_interaction_prior": round(self.surface_interaction_prior, 2),
             "modification": self.modification,
             "genetically_encodable": self.genetically_encodable,
             "toxicity_flag": self.toxicity_flag,
@@ -212,8 +212,8 @@ class EvidenceScorer:
             safety = assess_safety(cand.net_charge, cand.lytic_risk)
             # Box 3 (cell survival): trained membrane-disruption prior (HemoPI2),
             # falling back to the GRAVY heuristic only if the model is unavailable.
-            lysis = membrane_disruption_prior(cand.sequence)
-            surface = surface_adsorption(cand.sequence)
+            lysis = hemolysis_prior(cand.sequence)
+            surface = surface_interaction_prior(cand.sequence)
             mod = cand.modification
             crit = (
                 None if crit_profile is None
@@ -225,7 +225,7 @@ class EvidenceScorer:
             # weight-setting (n≈6 is too small; see docs/scoring.md).
             algae_fit = (
                 None if self._algae_fit_scorer is None
-                else insertion_fit(cand.sequence)
+                else membrane_interaction_capacity(cand.sequence)
             )
 
             profiles.append(
@@ -248,7 +248,7 @@ class EvidenceScorer:
                     lytic_risk=cand.lytic_risk,
                     charge_risk=safety.charge_risk,
                     lysis_risk=lysis,
-                    surface_adsorption=surface,
+                    surface_interaction_prior=surface,
                     safety_factor=safety.safety_factor,
                     evidence=evidence_level(cand),
                     modification=mod.summary,

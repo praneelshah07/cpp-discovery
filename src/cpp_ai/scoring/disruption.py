@@ -1,4 +1,4 @@
-"""Membrane-disruption prior — a *trained* Box-3 (cell-survival) predictor.
+"""Hemolysis prior — a *trained* Box-3 (cell-survival) predictor.
 
 Replaces the hand-tuned GRAVY lysis heuristic (which misranks melittin) with a
 model trained on real hemolysis data: **HemoPI2** (Raghava lab; sequences +
@@ -14,7 +14,7 @@ heuristic, but a prior. The goal is an unbiased toxicity axis to set *beside*
 uptake, so a genuinely low-toxicity/high-uptake peptide is kept and a
 high-toxicity one is flagged — not to purge any family.
 
-`membrane_disruption_prior(seq)` returns P(membrane-disruptive) in [0, 1]. If the
+`hemolysis_prior(seq)` returns P(membrane-disruptive) in [0, 1]. If the
 trained model is unavailable it falls back to the heuristic
 :func:`cpp_ai.scoring.safety.membrane_lysis_risk`.
 
@@ -93,8 +93,8 @@ def _load_model() -> dict[str, Any] | None:
     return _cache["model"]  # type: ignore[no-any-return]
 
 
-def membrane_disruption_prior(sequence: str) -> float:
-    """Trained P(membrane-disruptive) in [0, 1]; heuristic fallback if no model."""
+def hemolysis_prior(sequence: str) -> float:
+    """Trained P(hemolytic) in [0, 1]; heuristic fallback if no model."""
     if not is_canonical_sequence(sequence):
         return 0.0
     bundle = _load_model()
@@ -158,7 +158,7 @@ def train() -> None:
         ("pVEC-R6A", "LLIILARRIRKQAHAHSK"),
         ("TAT", "YGRKKRRQRRR"),
     ]:
-        print(f"  {n:20s} {membrane_disruption_prior(s):.2f}")
+        print(f"  {n:20s} {hemolysis_prior(s):.2f}")
 
 
 if __name__ == "__main__":

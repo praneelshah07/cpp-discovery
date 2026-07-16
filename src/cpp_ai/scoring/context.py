@@ -109,7 +109,7 @@ class AlgaeFitScorer:
         # losers (R9/TAT) were extreme polycations, so the SAR spuriously learns
         # "less charge is better" and over-rewards neutral peptides. Exclude the
         # charge descriptors here so this scorer captures only membrane *insertion*
-        # (amphipathicity/hydrophobicity/shape); surface_adsorption handles charge.
+        # (amphipathicity/hydrophobicity/shape); surface_interaction_prior handles charge.
         used = [
             c for c in report.contrasts
             if abs(c.effect) >= min_effect and c.descriptor not in _CHARGE_DESCRIPTORS

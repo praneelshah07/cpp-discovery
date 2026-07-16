@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from .blocks import BIOLOGICAL_BLOCKS, BiologicalBlock, all_block_features
 from .context import AlgaeFitScorer, FitContribution, FitTerm
-from .disruption import is_trained_model_available, membrane_disruption_prior
+from .disruption import is_trained_model_available, hemolysis_prior
 from .evidence import EvidenceProfile, EvidenceScorer, evidence_level
-from .insertion import insertion_fit
+from .insertion import membrane_interaction_capacity
 from .physchem import BlockScore, BlockSimilarityIndex, PhyschemProfile
 from .positional import (
     CLWOX_CRITICAL,
@@ -20,7 +20,7 @@ from .positional import (
     substitution_similarity,
 )
 from .safety import SafetyAssessment, assess_safety, charge_risk, membrane_lysis_risk
-from .surface import charge_adsorption, surface_adsorption
+from .surface import charge_adsorption, surface_interaction_prior
 
 __all__ = [
     "BIOLOGICAL_BLOCKS",
@@ -32,15 +32,15 @@ __all__ = [
     "EvidenceProfile",
     "EvidenceScorer",
     "evidence_level",
-    "insertion_fit",
+    "membrane_interaction_capacity",
     "AlgaeFitScorer",
     "FitTerm",
     "FitContribution",
     "charge_risk",
     "membrane_lysis_risk",
-    "membrane_disruption_prior",
+    "hemolysis_prior",
     "is_trained_model_available",
-    "surface_adsorption",
+    "surface_interaction_prior",
     "charge_adsorption",
     "assess_safety",
     "SafetyAssessment",

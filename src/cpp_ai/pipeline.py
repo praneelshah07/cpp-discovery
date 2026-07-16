@@ -48,7 +48,7 @@ RankBy = Literal["blend", "algae_fit"]
 # The algal cell wall is a real, first-order barrier — but for a *fixed* cargo it
 # is a constant across candidates (so it cannot differentiate the ranking), and
 # its one sequence-predictable component (charge → adsorption to the anionic wall)
-# is already captured by surface_adsorption. It is therefore surfaced as context,
+# is already captured by surface_interaction_prior. It is therefore surfaced as context,
 # not a score. See docs/scoring.md (cell-wall scoping).
 CELL_WALL_CONTEXT = (
     "Context: every candidate must cross the glycoprotein cell wall AND the plasma "
@@ -148,11 +148,11 @@ def explain_profile(profile: EvidenceProfile) -> list[Reason]:
         r.append(Reason(
             f"High physicochemical similarity to anchor "
             f"({profile.physchem_percentile * 100:.0f}th pct)", True))
-    if profile.surface_adsorption >= 0.6:
+    if profile.surface_interaction_prior >= 0.6:
         r.append(Reason(
             f"Charge {profile.net_charge:+d} favors adsorption to the negative "
             f"algal surface (near the +4..+6 sweet spot)", True))
-    elif profile.surface_adsorption <= 0.2:
+    elif profile.surface_interaction_prior <= 0.2:
         r.append(Reason(
             f"Charge {profile.net_charge:+d} gives little electrostatic pull on the "
             f"negative algal surface — poor adsorption (exploratory)", False))
@@ -276,8 +276,8 @@ class AlgaeRecommendation:
             }
             if p.algae_fit is not None:
                 row["usable_delivery"] = round(usable_delivery(p), 3)
-                row["surface_binding"] = round(p.surface_adsorption, 2)
-                row["insertion_fit"] = round(p.algae_fit, 3)
+                row["surface_interaction"] = round(p.surface_interaction_prior, 2)
+                row["membrane_interaction_capacity"] = round(p.algae_fit, 3)
                 row["fusion_confidence"] = round(p.fusion_confidence, 2)
             row.update(
                 {
@@ -369,11 +369,11 @@ def _load_classifier() -> Any:
 def usable_delivery(p: EvidenceProfile) -> float:
     """Usable algae-delivery score, as a product of separable biological steps:
 
-    ``surface_adsorption × insertion_fit × (1 − lysis)² × fusion_confidence``
+    ``surface_interaction_prior × membrane_interaction_capacity × (1 − lysis)² × fusion_confidence``
 
-    - **surface_adsorption** — electrostatic attraction to the negative algal
+    - **surface_interaction_prior** — electrostatic attraction to the negative algal
       surface (no adsorption → no uptake); peaks ~+4..+6, floors neutral peptides.
-    - **insertion_fit** (``algae_fit``) — a literature-weighted membrane-insertion
+    - **membrane_interaction_capacity** (``algae_fit``) — a literature-weighted membrane-insertion
       prior (amphipathicity + helix propensity + moderate hydrophobicity; aromatics
       neutral, charge excluded). Replaces the confounded n≈6 ledger SAR.
     - **(1 − lysis)²** — squared membrane-lysis penalty (per review).
@@ -383,7 +383,7 @@ def usable_delivery(p: EvidenceProfile) -> float:
     if p.algae_fit is None:
         return 0.0
     return (
-        p.surface_adsorption
+        p.surface_interaction_prior
         * p.algae_fit
         * (1.0 - p.lysis_risk) ** 2
         * p.fusion_confidence

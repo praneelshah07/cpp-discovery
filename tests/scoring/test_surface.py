@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cpp_ai.scoring.surface import charge_adsorption, surface_adsorption
+from cpp_ai.scoring.surface import charge_adsorption, surface_interaction_prior
 
 
 def test_bounded() -> None:
@@ -31,9 +31,9 @@ def test_over_charged_tapers_for_toxicity() -> None:
 
 def test_algae_proven_anchors_score_high() -> None:
     for seq in ("LLIILRRRIRKQAHAHSK", "LLIILARRIRKQAHAHSK", "TNVYNWFQNRRARTKRK"):
-        assert surface_adsorption(seq) > 0.8  # pVEC, pVEC-R6A, ClWOX all cationic
+        assert surface_interaction_prior(seq) > 0.8  # pVEC, pVEC-R6A, ClWOX all cationic
 
 
 def test_neutral_peptide_demoted() -> None:
     # a net-neutral/negative peptide adsorbs poorly regardless of good insertion
-    assert surface_adsorption("YQQILTSMPSRNVIQISNDLENLRDLLHVL") < 0.2
+    assert surface_interaction_prior("YQQILTSMPSRNVIQISNDLENLRDLLHVL") < 0.2

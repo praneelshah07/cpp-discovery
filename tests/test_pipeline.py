@@ -91,7 +91,7 @@ def test_top_k_truncates() -> None:
 def test_dataframe_and_markdown_render() -> None:
     rec = _rec(top_k=5, algae_mode=True, rank_by="algae_fit", low_toxicity=False)
     df = rec.to_dataframe()
-    assert len(df) == 5 and "insertion_fit" in df.columns
+    assert len(df) == 5 and "membrane_interaction_capacity" in df.columns
     md = rec.to_markdown()
     assert "Algae-delivery CPP candidates" in md
     assert "not** algae-uptake predictions" in md  # the honesty caveat survives
@@ -152,7 +152,7 @@ def test_usable_delivery_squares_lysis_and_applies_fusion() -> None:
     rec = _rec(algae_mode=True, low_toxicity=False, top_k=None)
     p = rec.profiles[0]
     expected = (
-        p.surface_adsorption * p.algae_fit  # type: ignore[operator]
+        p.surface_interaction_prior * p.algae_fit  # type: ignore[operator]
         * (1 - p.lysis_risk) ** 2 * p.fusion_confidence
     )
     assert abs(usable_delivery(p) - expected) < 1e-9
@@ -160,7 +160,7 @@ def test_usable_delivery_squares_lysis_and_applies_fusion() -> None:
     lytic = next((x for x in rec.profiles if x.lysis_risk > 0.5), None)
     if lytic is not None and lytic.algae_fit is not None:
         squared = usable_delivery(lytic)
-        linear = lytic.surface_adsorption * lytic.algae_fit * (1 - lytic.lysis_risk) \
+        linear = lytic.surface_interaction_prior * lytic.algae_fit * (1 - lytic.lysis_risk) \
             * lytic.fusion_confidence
         assert squared < linear
 
@@ -177,7 +177,7 @@ def test_fusion_advisory_is_informational_not_ranking() -> None:
     assert abs(charge_density(p) - p.net_charge / len(p.sequence)) < 1e-9
     # advisory must NOT affect ranking: usable_delivery ignores cargo charge
     assert usable_delivery(p) == (
-        p.surface_adsorption * p.algae_fit  # type: ignore[operator]
+        p.surface_interaction_prior * p.algae_fit  # type: ignore[operator]
         * (1 - p.lysis_risk) ** 2 * p.fusion_confidence
     )
 
@@ -266,7 +266,7 @@ def test_dataframe_uses_renamed_columns() -> None:
     df = _rec(algae_mode=True, top_k=5).to_dataframe()
     assert "composite_score" in df.columns
     # mechanistic decomposition columns
-    assert {"usable_delivery", "surface_binding", "insertion_fit"} <= set(df.columns)
+    assert {"usable_delivery", "surface_interaction", "membrane_interaction_capacity"} <= set(df.columns)
     assert "family" in df.columns
     assert "overall_match" not in df.columns  # old name gone
 

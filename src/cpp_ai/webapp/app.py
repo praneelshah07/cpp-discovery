@@ -132,7 +132,7 @@ def _table(profiles: list[Any]) -> pd.DataFrame:
         if p.critical_position is not None:
             row["Key-residue match"] = _pct(p.critical_position)
         row["Net charge"] = p.net_charge
-        row["Disruption prior"] = round(p.lysis_risk, 2)
+        row["Hemolysis prior"] = round(p.lysis_risk, 2)
         row["Toxicity risk"] = _toxicity_label(p)
         row["Confidence"] = p.ad_confidence
         row["Evidence"] = _evidence_label(p)
@@ -151,7 +151,7 @@ st.markdown(
     "Pick a peptide that works (an **anchor**) and this tool ranks ~2,200 known, "
     "cloneable cell-penetrating peptides for **delivery into microalgae** — "
     "balancing similarity, an evidence-based algae profile, a trained membrane-"
-    "disruption (toxicity) prior, "
+    "hemolysis (toxicity) prior, "
     "and whether the peptide is genetically encodable for an mCherry fusion."
 )
 st.info(
@@ -176,8 +176,8 @@ n_show = st.sidebar.slider("How many candidates", 5, 40, 15)
 st.sidebar.metric("Cloneable CPPs screened", len(lib))
 st.sidebar.caption(
     "Ranked by **usable delivery** = surface binding × insertion fit × "
-    "(1 − disruption)² × cloneability, where disruption is a trained hemolysis "
-    "prior. Membrane-disruptive peptides are kept but flagged ⚠. Near-identical "
+    "(1 − hemolysis)² × cloneability, where hemolysis is a trained hemolysis "
+    "prior. Hemolytic-looking peptides are kept but flagged ⚠. Near-identical "
     "scaffolds are grouped — expand any candidate to see its variants."
 )
 
@@ -215,9 +215,9 @@ def _lean_table(family_groups: list[Any]) -> pd.DataFrame:
             "Peptide": p.name,
             "Family": peptide_family(p.sequence),
             "Usable delivery": _pct(usable_delivery(p)) if p.algae_fit is not None else None,
-            "Surface binding": _pct(p.surface_adsorption),
-            "Insertion fit": _pct(p.algae_fit),
-            "Disruption": ("⚠ " if p.lysis_risk >= _LYSIS_WARN else "") + f"{p.lysis_risk:.2f}",
+            "Surface interaction": _pct(p.surface_interaction_prior),
+            "Membrane interaction": _pct(p.algae_fit),
+            "Hemolysis": ("⚠ " if p.lysis_risk >= _LYSIS_WARN else "") + f"{p.lysis_risk:.2f}",
             "Charge": p.net_charge,
             "Charge density": round(charge_density(p), 2),
             "Cloneable": "✓" if p.genetically_encodable else "—",
@@ -234,11 +234,11 @@ st.caption(
     "and need testing."
 )
 if is_trained_model_available():
-    st.caption("Toxicity axis: **trained membrane-disruption prior** (HemoPI2) ✓")
+    st.caption("Toxicity axis: **trained hemolysis prior** (HemoPI2) ✓")
 else:
     st.caption(
         "⚠ Toxicity axis: **heuristic fallback** — the trained model failed to load "
-        "(likely a scikit-learn version mismatch). Disruption scores are the crude "
+        "(likely a scikit-learn version mismatch). Hemolysis-prior scores are the crude "
         "GRAVY heuristic, not the trained prior."
     )
 st.dataframe(_lean_table(groups), use_container_width=True, hide_index=True)
@@ -252,17 +252,17 @@ if sel != "—":
     p = g.representative
     if p.lysis_risk >= _LYSIS_WARN:
         st.warning(
-            f"High **membrane-disruption prior ({_pct(p.lysis_risk)}%)** — this peptide "
+            f"High **hemolysis prior ({_pct(p.lysis_risk)}%)** — this peptide "
             "resembles hemolytic/AMP peptides. It may still enter cells, but could also "
             "damage membranes / be toxic. Not disqualifying — a high-uptake peptide with "
-            "high disruption is a real (if risky) candidate; verify algal toxicity.",
+            "high hemolysis is a real (if risky) candidate; verify algal toxicity.",
             icon="⚠️",
         )
     c1, c2, c3 = st.columns(3)
     c1.metric("Usable delivery", _pct(usable_delivery(p)) if p.algae_fit is not None else "—")
-    c1.metric("Surface binding", _pct(p.surface_adsorption))
-    c2.metric("Insertion fit", _pct(p.algae_fit))
-    c2.metric("Disruption prior", _pct(p.lysis_risk))
+    c1.metric("Surface interaction", _pct(p.surface_interaction_prior))
+    c2.metric("Membrane interaction", _pct(p.algae_fit))
+    c2.metric("Hemolysis prior", _pct(p.lysis_risk))
     c3.metric("Net charge", f"{p.net_charge:+d}")
     c3.metric("Fusion confidence", f"{p.fusion_confidence:.2f}")
     st.markdown(
@@ -288,7 +288,7 @@ filtered = reps  # used by the download section below
 with st.expander("ℹ️ How the ranking works"):
     st.markdown(
         "Candidates are ordered by **usable delivery = surface binding × insertion "
-        "fit × (1 − disruption)² × fusion confidence** — three separable biological "
+        "fit × (1 − hemolysis)² × fusion confidence** — three separable biological "
         "steps plus cloneability, so a peptide has to clear *all* of them to rank high.\n\n"
         "- **Usable delivery** — the headline 0–100 ranking score above. A design "
         "heuristic, **not** a delivery probability.\n"
@@ -299,14 +299,14 @@ with st.expander("ℹ️ How the ranking works"):
         "- **Insertion fit** — match to the membrane-*insertion* profile of CPPs that "
         "worked in microalgae (amphipathic/hydrophobic/shape), learned from the "
         "evidence ledger. Charge is handled by Surface binding, not here.\n"
-        "- **Disruption** — a **trained membrane-disruption prior** (a model trained on "
+        "- **Hemolysis prior** — a **trained hemolysis prior** (a model trained on "
         "HemoPI2 hemolysis data, ROC-AUC ~0.85), giving P(membrane-disruptive/AMP-like). "
         "⚠ (≥0.50) = resembles hemolytic peptides; kept but flagged. It is trained on "
         "**human red-blood-cell** hemolysis, so it is a cross-kingdom *prior* for algae, "
         "not a measured algal toxicity — and it predicts the *hemolytic* phenotype only, "
         "so it is **blind to non-hemolytic membrane toxicity** (e.g. KLA-type "
         "mitochondrial toxins score near zero). Uptake (Surface + Insertion) and toxicity "
-        "(Disruption) are shown separately so you can weigh the trade-off yourself.\n"
+        "(Hemolysis) are shown separately so you can weigh the trade-off yourself.\n"
         "- **Cloneable / Fusion confidence** — whether the peptide was tested as the "
         "bare sequence (✓, mCherry-fusion ready) or in a form that may not transfer "
         "(fluorescein tag, amidation, lipidation, non-canonical residues). Only ~30% "
