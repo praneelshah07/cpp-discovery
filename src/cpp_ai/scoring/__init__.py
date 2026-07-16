@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .blocks import BIOLOGICAL_BLOCKS, BiologicalBlock, all_block_features
 from .context import AlgaeFitScorer, FitContribution, FitTerm
+from .disruption import is_trained_model_available, membrane_disruption_prior
 from .evidence import EvidenceProfile, EvidenceScorer, evidence_level
 from .insertion import insertion_fit
 from .physchem import BlockScore, BlockSimilarityIndex, PhyschemProfile
@@ -37,6 +38,8 @@ __all__ = [
     "FitContribution",
     "charge_risk",
     "membrane_lysis_risk",
+    "membrane_disruption_prior",
+    "is_trained_model_available",
     "surface_adsorption",
     "charge_adsorption",
     "assess_safety",

@@ -72,14 +72,20 @@ that separates a CPP from a lytic AMP — the same amphipathic/hydrophobic featu
 that aid traversal also enable membrane disruption. Entry that kills the cell is
 not delivery.
 
-- **Current score:** `scoring.safety.membrane_lysis_risk` (GRAVY/µH heuristic) —
-  the **weakest link**; misranks the canonical hemolytic peptide (melittin).
-- **Evidence grade:** concept **strong**; implementation **weak**.
-- **Predictor now → later:** **trained membrane-disruption prior** — a hemolysis
-  model (HemoPI/DBAASP/Hemolytik) is a *cross-kingdom borrowed prior* (human RBC
-  ≠ algal membrane), so name it a **membrane-disruption prior**, not "lysis
-  prediction." The ideal eventual predictor is trained on **algal toxicity data**
-  (the lab's own viability assays).
+- **Current score:** ✅ **trained membrane-disruption prior**
+  (`scoring.disruption.membrane_disruption_prior`) — a HistGradientBoosting model
+  trained on **HemoPI2** (Raghava lab; DBAASP/Hemolytik-derived; highly- vs
+  poorly-hemolytic real peptides). ROC-AUC ~0.82 CV / ~0.86 independent. Falls
+  back to the GRAVY heuristic only if the model file is absent.
+- **Why this replaced the heuristic:** the GRAVY heuristic scored the canonical
+  hemolytic peptide melittin at **0.26** (missed it); the trained prior scores it
+  **0.97**, while keeping pVEC/TAT low (0.01–0.05).
+- **Evidence grade:** strong for hemolysis; **cross-kingdom prior** for algae
+  (trained on human RBC, not algal membranes) — a *prior*, not truth.
+- **Data:** `data/raw/hemolysis/*.csv` (HemoPI2, gitignored — re-downloadable);
+  the derived model `data/models/hemolysis_disruption.pkl` is committed.
+- **Predictor later:** retrain on the lab's own **algal toxicity data** to remove
+  the cross-kingdom gap.
 
 ## Box 4 — Cargo compatibility
 
@@ -162,14 +168,14 @@ should be verified explicitly before trusting wall assumptions.*
 |---|---|---|
 | 1 Surface interaction | `surface_adsorption` | partial (net charge only; broaden to local charge density/distribution) |
 | 2 Membrane traversal | `insertion_fit` | partial (wall as context) |
-| 3 Cell survival | `(1 − lysis)²` heuristic | **weak** — replace with a trained membrane-disruption prior |
+| 3 Cell survival | `(1 − disruption)²`, disruption = trained HemoPI2 prior | ✅ trained (cross-kingdom prior; retrain on algal data later) |
 | 4 Cargo compatibility | (only `fusion_confidence`) | **near-empty** — add complex-charge, fold/fluorescence |
 | 5 Experimental transferability | `fusion_confidence` + AD confidence | partial |
 
 **Sequencing rule:** define the process (this doc), *then* choose each box's
 predictor type. Do not optimize equations before the boxes are agreed. Highest-
-value next work, in order: (1) Box 3 trained membrane-disruption prior; (2) Box 4
-fusion-level *advisory* signals (charge density, fusion-charge mismatch flag,
-fold retention) + Box 1 broadening to local charge density; and — decisively —
-growing the **algae/Auxenochlorella evidence ledger**, since Boxes 2–4 are
-ultimately empirical.
+value next work, in order: (1) ✅ Box 3 trained membrane-disruption prior *(done —
+retrain on algal toxicity data to close the cross-kingdom gap)*; (2) Box 4
+fusion-level *advisory* signals + Box 1 broadening to local charge density; and —
+decisively — growing the **algae/Auxenochlorella evidence ledger**, since Boxes
+2–4 are ultimately empirical.

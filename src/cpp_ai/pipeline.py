@@ -162,9 +162,11 @@ def explain_profile(profile: EvidenceProfile) -> list[Reason]:
         elif profile.algae_fit < 0.4:
             r.append(Reason("Weak membrane-insertion profile (little amphipathic character)", False))
     if profile.lysis_risk < 0.3:
-        r.append(Reason("Low predicted membrane-lysis (gentle)", True))
+        r.append(Reason("Low predicted membrane disruption (trained prior — gentle)", True))
     elif profile.lysis_risk > 0.6:
-        r.append(Reason("Membrane-lytic (AMP-like) risk", False))
+        r.append(Reason(
+            f"High membrane-disruption prior ({profile.lysis_risk*100:.0f}% — "
+            f"AMP-like; verify algal toxicity)", False))
     if profile.cpp_probability is not None and profile.cpp_probability >= 0.8:
         r.append(Reason(f"High CPP-classifier probability "
                         f"({profile.cpp_probability * 100:.0f}%)", True))

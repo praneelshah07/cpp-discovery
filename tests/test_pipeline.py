@@ -145,7 +145,7 @@ def test_explain_profile_has_reasons() -> None:
     map_p = next((p for p in rec2.profiles if p.name == "MAP"), None)
     if map_p is not None:
         texts = [r.text for r in explain_profile(map_p) if not r.positive]
-        assert any("lyt" in t.lower() for t in texts)
+        assert any("disruption" in t.lower() for t in texts)
 
 
 def test_usable_delivery_squares_lysis_and_applies_fusion() -> None:

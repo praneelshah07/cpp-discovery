@@ -128,7 +128,7 @@ def _table(profiles: list[Any]) -> pd.DataFrame:
         if p.critical_position is not None:
             row["Key-residue match"] = _pct(p.critical_position)
         row["Net charge"] = p.net_charge
-        row["Lysis risk"] = round(p.lysis_risk, 2)
+        row["Disruption prior"] = round(p.lysis_risk, 2)
         row["Toxicity risk"] = _toxicity_label(p)
         row["Confidence"] = p.ad_confidence
         row["Evidence"] = _evidence_label(p)
@@ -146,7 +146,8 @@ st.title("🧬 CPP Discovery — algae-delivery candidates")
 st.markdown(
     "Pick a peptide that works (an **anchor**) and this tool ranks ~2,200 known, "
     "cloneable cell-penetrating peptides for **delivery into microalgae** — "
-    "balancing similarity, an evidence-based algae profile, membrane-lysis safety, "
+    "balancing similarity, an evidence-based algae profile, a trained membrane-"
+    "disruption (toxicity) prior, "
     "and whether the peptide is genetically encodable for an mCherry fusion."
 )
 st.info(
@@ -171,8 +172,9 @@ n_show = st.sidebar.slider("How many candidates", 5, 40, 15)
 st.sidebar.metric("Cloneable CPPs screened", len(lib))
 st.sidebar.caption(
     "Ranked by **usable delivery** = surface binding × insertion fit × "
-    "(1 − lysis)² × cloneability. Membrane-lytic peptides are kept but flagged ⚠. "
-    "Near-identical scaffolds are grouped — expand any candidate to see its variants."
+    "(1 − disruption)² × cloneability, where disruption is a trained hemolysis "
+    "prior. Membrane-disruptive peptides are kept but flagged ⚠. Near-identical "
+    "scaffolds are grouped — expand any candidate to see its variants."
 )
 
 if not anchor:
@@ -211,7 +213,7 @@ def _lean_table(family_groups: list[Any]) -> pd.DataFrame:
             "Usable delivery": _pct(usable_delivery(p)) if p.algae_fit is not None else None,
             "Surface binding": _pct(p.surface_adsorption),
             "Insertion fit": _pct(p.algae_fit),
-            "Lysis": ("⚠ " if p.lysis_risk >= _LYSIS_WARN else "") + f"{p.lysis_risk:.2f}",
+            "Disruption": ("⚠ " if p.lysis_risk >= _LYSIS_WARN else "") + f"{p.lysis_risk:.2f}",
             "Charge": p.net_charge,
             "Charge density": round(charge_density(p), 2),
             "Cloneable": "✓" if p.genetically_encodable else "—",
@@ -238,16 +240,17 @@ if sel != "—":
     p = g.representative
     if p.lysis_risk >= _LYSIS_WARN:
         st.warning(
-            "This peptide looks **membrane-lytic** (AMP-like). It may enter cells but "
-            "could also damage membranes / be toxic — treat as a hypothesis needing "
-            "wet-lab toxicity testing.",
+            f"High **membrane-disruption prior ({_pct(p.lysis_risk)}%)** — this peptide "
+            "resembles hemolytic/AMP peptides. It may still enter cells, but could also "
+            "damage membranes / be toxic. Not disqualifying — a high-uptake peptide with "
+            "high disruption is a real (if risky) candidate; verify algal toxicity.",
             icon="⚠️",
         )
     c1, c2, c3 = st.columns(3)
     c1.metric("Usable delivery", _pct(usable_delivery(p)) if p.algae_fit is not None else "—")
     c1.metric("Surface binding", _pct(p.surface_adsorption))
     c2.metric("Insertion fit", _pct(p.algae_fit))
-    c2.metric("Lysis risk", f"{p.lysis_risk:.2f}")
+    c2.metric("Disruption prior", _pct(p.lysis_risk))
     c3.metric("Net charge", f"{p.net_charge:+d}")
     c3.metric("Fusion confidence", f"{p.fusion_confidence:.2f}")
     st.markdown(
@@ -273,7 +276,7 @@ filtered = reps  # used by the download section below
 with st.expander("ℹ️ How the ranking works"):
     st.markdown(
         "Candidates are ordered by **usable delivery = surface binding × insertion "
-        "fit × (1 − lysis risk)² × fusion confidence** — three separable biological "
+        "fit × (1 − disruption)² × fusion confidence** — three separable biological "
         "steps plus cloneability, so a peptide has to clear *all* of them to rank high.\n\n"
         "- **Usable delivery** — the headline 0–100 ranking score above. A design "
         "heuristic, **not** a delivery probability.\n"
@@ -284,9 +287,12 @@ with st.expander("ℹ️ How the ranking works"):
         "- **Insertion fit** — match to the membrane-*insertion* profile of CPPs that "
         "worked in microalgae (amphipathic/hydrophobic/shape), learned from the "
         "evidence ledger. Charge is handled by Surface binding, not here.\n"
-        "- **Lysis** — heuristic membrane-lysis (AMP-like) risk. ⚠ (≥0.50) = perturbs "
-        "membranes (TP10/MAP-like) rather than entering gently; kept but flagged for "
-        "toxicity testing. A prior, not a measured hemolysis value.\n"
+        "- **Disruption** — a **trained membrane-disruption prior** (a model trained on "
+        "HemoPI2 hemolysis data, ROC-AUC ~0.85), giving P(membrane-disruptive/AMP-like). "
+        "⚠ (≥0.50) = resembles hemolytic peptides; kept but flagged. It is trained on "
+        "**human red-blood-cell** hemolysis, so it is a cross-kingdom *prior* for algae, "
+        "not a measured algal toxicity. Uptake (Surface + Insertion) and toxicity "
+        "(Disruption) are shown separately so you can weigh the trade-off yourself.\n"
         "- **Cloneable / Fusion confidence** — whether the peptide was tested as the "
         "bare sequence (✓, mCherry-fusion ready) or in a form that may not transfer "
         "(fluorescein tag, amidation, lipidation, non-canonical residues). Only ~30% "

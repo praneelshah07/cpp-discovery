@@ -33,9 +33,10 @@ from ..similarity.features import PeptideFeatures
 from ..similarity.metrics import SequenceIdentity, SmithWaterman
 from .context import AlgaeFitScorer
 from .insertion import insertion_fit
+from .disruption import membrane_disruption_prior
 from .physchem import BlockSimilarityIndex
 from .positional import CriticalPositionProfile, critical_position_score
-from .safety import assess_safety, membrane_lysis_risk
+from .safety import assess_safety
 from .surface import surface_adsorption
 
 
@@ -74,7 +75,7 @@ class EvidenceProfile:
     toxicity_flag: str
     lytic_risk: bool
     charge_risk: float
-    lysis_risk: float  # heuristic membrane-lysis (AMP-like) risk, 0=gentle
+    lysis_risk: float  # membrane-disruption prior (trained on HemoPI2), 0=gentle
     surface_adsorption: float  # electrostatic adsorption to the negative algal surface
     safety_factor: float
     # evidence quality
@@ -209,7 +210,9 @@ class EvidenceScorer:
             cpp = None if cpp_probs is None else float(cpp_probs[i])
             blocks = {b.name: b.similarity for b in p.blocks}
             safety = assess_safety(cand.net_charge, cand.lytic_risk)
-            lysis = membrane_lysis_risk(cand.sequence)
+            # Box 3 (cell survival): trained membrane-disruption prior (HemoPI2),
+            # falling back to the GRAVY heuristic only if the model is unavailable.
+            lysis = membrane_disruption_prior(cand.sequence)
             surface = surface_adsorption(cand.sequence)
             mod = cand.modification
             crit = (
