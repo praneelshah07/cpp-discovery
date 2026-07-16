@@ -44,6 +44,9 @@ def load_cppsite3_library(
             category=str(r.get("cat", "?")),
             mechanism=str(r.get("proupmech", "?")),
             source=str(r.get("source", "?")),
+            n_term_mod=str(r.get("ntermod", "")),
+            c_term_mod=str(r.get("ctermod", "")),
+            chem_mod=str(r.get("chmod", "")),
         )
     return list(seen.values())
 

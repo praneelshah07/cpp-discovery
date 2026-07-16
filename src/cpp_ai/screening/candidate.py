@@ -11,9 +11,10 @@ uptake is gentler.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..generation.constraints import net_charge
+from .modification import ModificationInfo, classify_modifications
 
 _ENDOCYTIC = re.compile(r"endocyt|macropinocyt|pinocyt|caveola|clathrin|energy.?dependent", re.I)
 _LYTIC = re.compile(r"antimicrob|direct translocation|non.?endocytic|non.?receptor|pore", re.I)
@@ -38,10 +39,19 @@ class ScreenCandidate:
     mechanism: str = "?"
     source: str = "?"
     similarity: float | None = None
+    # tested-form chemical modifications (raw CPPsite3 fields; "" == free/none)
+    n_term_mod: str = ""
+    c_term_mod: str = ""
+    chem_mod: str = ""
 
     @property
     def net_charge(self) -> int:
         return net_charge(self.sequence)
+
+    @property
+    def modification(self) -> ModificationInfo:
+        """Classified chemical modifications of the tested form."""
+        return classify_modifications(self.n_term_mod, self.c_term_mod, self.chem_mod)
 
     @property
     def length(self) -> int:
@@ -61,11 +71,10 @@ class ScreenCandidate:
         return bool(_LYTIC.search(self.mechanism) or _LYTIC.search(self.category))
 
     def with_similarity(self, value: float) -> "ScreenCandidate":
-        return ScreenCandidate(
-            self.sequence, self.name, self.category, self.mechanism, self.source, value
-        )
+        return replace(self, similarity=value)
 
     def to_record(self) -> dict[str, object]:
+        mod = self.modification
         return {
             "name": self.name,
             "sequence": self.sequence,
@@ -74,6 +83,8 @@ class ScreenCandidate:
             "length": self.length,
             "toxicity_flag": self.toxicity_flag,
             "lytic_risk": self.lytic_risk,
+            "modification": mod.summary,
+            "genetically_encodable": mod.genetically_encodable,
             "mechanism": self.mechanism,
             "category": self.category,
             "source": self.source,

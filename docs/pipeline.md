@@ -48,7 +48,8 @@ python -m cpp_ai.pipeline --anchor pVEC --rank-by algae_fit --max-identity 0.6 \
 
 Flags: `--anchor` (preset or raw sequence), `--top`, `--rank-by {blend,algae_fit}`,
 `--max-identity FRAC`, `--max-lysis RISK`, `--collapse-families RATIO`,
-`--no-algae`, `--allow-toxic`, `--out`, `--report`.
+`--encodable-only`, `--categorize`, `--no-algae`, `--allow-toxic`, `--out`,
+`--report`.
 
 Outputs a ranked CSV and (optionally) a short, caveat-carrying markdown report.
 
@@ -73,6 +74,23 @@ number. Shown inline in the categorized view and via the app's
 
 `peptide_family(seq)` is a coarse mechanistic tag (Homeodomain / Transportan /
 pVEC-like / Polyarginine / …) so a panel reveals as a few mechanisms, not ten.
+
+## Modification-awareness (the tested form ≠ the naked sequence)
+
+CPPsite3 records the form each peptide was *actually tested* in
+(`ntermod`/`ctermod`/`chmod`), which the loader now carries.
+`screening.modification.classify_modifications` buckets them into
+`none` / `terminal` (amidation, acetylation) / `conjugate` (lipid, fluorophore,
+biotin, nanoparticle) / `noncanonical` (non-standard residues), with a
+`genetically_encodable` flag (true only for `none` — the bare sequence as
+tested). **Only ~30% of the library is encodable as tested** — even pVEC was
+fluorescein-tagged and amidated — so a modified peptide's measured behavior may
+not transfer to a plain mCherry fusion.
+
+Surfaced as the `tested_form` / `genetically_encodable` columns and an
+`explain_profile` reason; `require_encodable` (CLI `--encodable-only`, app
+"Cloneable only") filters to cloneable candidates; and a **"Cloneable
+(encodable as tested)"** hypothesis bucket ranks the mCherry-fusion-ready ones.
 
 ## Naming (honest labels)
 

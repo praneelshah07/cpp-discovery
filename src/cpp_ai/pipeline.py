@@ -155,6 +155,12 @@ def explain_profile(
         r.append(Reason("Experimentally-studied CPP", True))
     else:
         r.append(Reason("Computational candidate (no direct evidence)", False))
+    if profile.genetically_encodable:
+        r.append(Reason("Cloneable — tested as the bare sequence (mCherry-fusion ready)", True))
+    else:
+        r.append(Reason(
+            f"Tested form is modified ({profile.modification}); the naked-sequence "
+            f"scores may not transfer to a plain fusion", False))
     return r
 
 
@@ -193,6 +199,11 @@ def categorize(
         sorted(pool, key=lambda p: SequenceMatcher(None, p.sequence, anchor_seq).ratio()))
     add("gentle", "Gentlest (lowest lysis risk)", "Least membrane-perturbing",
         sorted(pool, key=lambda p: p.lysis_risk))
+    encodable = [p for p in pool if p.genetically_encodable]
+    if encodable:
+        add("cloneable", "Cloneable (encodable as tested)",
+            "Tested as the bare sequence — mCherry-fusion ready",
+            sorted(encodable, key=lambda p: p.shortlist_score, reverse=True))
     if any(p.algae_fit is not None for p in pool):
         add("algae", "Strongest algae profile",
             "Best algae-winner descriptors, discounted by lysis risk",
@@ -251,6 +262,8 @@ class AlgaeRecommendation:
             row["lysis_risk"] = round(p.lysis_risk, 2)
             row["confidence"] = p.ad_confidence
             row["evidence"] = p.evidence
+            row["tested_form"] = p.modification
+            row["genetically_encodable"] = p.genetically_encodable
             rows.append(row)
         return pd.DataFrame(rows)
 
@@ -304,10 +317,11 @@ class AlgaeRecommendation:
             lines += [f"## {c.title}", f"_{c.rationale}_", ""]
             for p in c.profiles:
                 af = f", algae-suit {p.algae_fit:.2f}" if p.algae_fit is not None else ""
+                clone = "cloneable" if p.genetically_encodable else "modified-as-tested"
                 lines.append(
                     f"- **{p.name}** `{p.sequence}` "
                     f"({peptide_family(p.sequence)}, {p.net_charge:+d}, "
-                    f"lysis {p.lysis_risk:.2f}{af})"
+                    f"lysis {p.lysis_risk:.2f}, {clone}{af})"
                 )
                 reasons = explain_profile(p, fit_scorer=self.fit_scorer)
                 for rsn in reasons:
@@ -358,6 +372,7 @@ def filter_and_rank(
     low_toxicity: bool = True,
     max_identity: float | None = None,
     max_lysis_risk: float | None = None,
+    require_encodable: bool = False,
     rank_by: RankBy = "blend",
     collapse_families: float | None = None,
 ) -> list[EvidenceProfile]:
@@ -365,9 +380,9 @@ def filter_and_rank(
 
     Kept separate from scoring so the (expensive, cached) EvidenceScorer step can
     be reused by front-ends while this cheap policy runs every interaction. Drops
-    the anchor, optionally toxic / membrane-lytic candidates and near-variants of
-    the anchor, orders by ``rank_by`` (algae-fit is discounted by lysis risk),
-    then optionally collapses near-duplicate scaffolds to one representative.
+    the anchor, optionally toxic / membrane-lytic / non-encodable candidates and
+    near-variants of the anchor, orders by ``rank_by`` (algae-fit is discounted by
+    lysis risk), then optionally collapses near-duplicate scaffolds.
     """
     identity = SequenceIdentity()
     anchor_feat = PeptideFeatures(sequence=anchor_seq)
@@ -377,6 +392,8 @@ def filter_and_rank(
         if p.sequence == anchor_seq:
             continue
         if low_toxicity and (p.lytic_risk or p.toxicity_flag == "HIGH-RISK"):
+            continue
+        if require_encodable and not p.genetically_encodable:
             continue
         if max_lysis_risk is not None and p.lysis_risk >= max_lysis_risk:
             continue
@@ -407,6 +424,7 @@ def recommend_for_algae(
     rank_by: RankBy = "blend",
     max_identity: float | None = None,
     max_lysis_risk: float | None = None,
+    require_encodable: bool = False,
     collapse_families: float | None = None,
     critical_profile: CriticalPositionProfile | None = None,
     embedding_service: object | None = None,
@@ -449,6 +467,7 @@ def recommend_for_algae(
         low_toxicity=low_toxicity,
         max_identity=max_identity,
         max_lysis_risk=max_lysis_risk,
+        require_encodable=require_encodable,
         rank_by=rank_by,
         collapse_families=collapse_families,
     )
@@ -489,6 +508,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--collapse-families", type=float, default=None, metavar="RATIO",
                    help="collapse near-duplicate scaffolds (e.g. 0.7) to one "
                         "representative each, for a diverse panel")
+    p.add_argument("--encodable-only", action="store_true",
+                   help="keep only candidates tested as the bare sequence (cloneable, "
+                        "mCherry-fusion ready — no amidation/lipidation/conjugation)")
     p.add_argument("--no-algae", action="store_true", help="disable the algae-fit axis")
     p.add_argument("--allow-toxic", action="store_true",
                    help="keep high-charge / membrane-lytic candidates")
@@ -509,6 +531,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         rank_by=args.rank_by,
         max_identity=args.max_identity,
         max_lysis_risk=args.max_lysis,
+        require_encodable=args.encodable_only,
         collapse_families=args.collapse_families,
     )
     df = rec.to_dataframe()

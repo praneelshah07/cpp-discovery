@@ -75,6 +75,10 @@ class EvidenceProfile:
     safety_factor: float
     # evidence quality
     evidence: str
+    # tested-form modification awareness (naked sequence vs what was measured)
+    modification: str
+    modification_class: str
+    genetically_encodable: bool
     # convenience ordering (transparent; components above)
     shortlist_score: float
 
@@ -101,6 +105,8 @@ class EvidenceProfile:
             "net_charge": self.net_charge,
             "charge_risk": round(self.charge_risk, 2),
             "lysis_risk": round(self.lysis_risk, 2),
+            "modification": self.modification,
+            "genetically_encodable": self.genetically_encodable,
             "toxicity_flag": self.toxicity_flag,
             "lytic_risk": self.lytic_risk,
             "evidence": self.evidence,
@@ -198,6 +204,7 @@ class EvidenceScorer:
             blocks = {b.name: b.similarity for b in p.blocks}
             safety = assess_safety(cand.net_charge, cand.lytic_risk)
             lysis = membrane_lysis_risk(cand.sequence)
+            mod = cand.modification
             crit = (
                 None if crit_profile is None
                 else critical_position_score(crit_profile, cand.sequence)
@@ -229,6 +236,9 @@ class EvidenceScorer:
                     lysis_risk=lysis,
                     safety_factor=safety.safety_factor,
                     evidence=evidence_level(cand),
+                    modification=mod.summary,
+                    modification_class=mod.modification_class,
+                    genetically_encodable=mod.genetically_encodable,
                     shortlist_score=_shortlist(
                         p.composite, motif, cpp, algae_fit, safety.safety_factor
                     ),

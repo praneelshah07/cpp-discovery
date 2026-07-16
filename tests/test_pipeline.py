@@ -146,6 +146,44 @@ def test_explain_profile_has_reasons() -> None:
         assert any("lyt" in t.lower() for t in texts)
 
 
+def test_require_encodable_filters_modified() -> None:
+    lib = [
+        ScreenCandidate(sequence="LLIILARRIRKQAHAHSK", name="bare"),  # encodable
+        ScreenCandidate(sequence="GWTLNSAGYLLGKINLKALAALAKKIL", name="tagged",
+                        c_term_mod="Amidation"),  # modified
+    ]
+    rec = recommend_for_algae(
+        anchor=_PVEC, library=lib, ledger=build_seed_ledger(), classifier=None,
+        top_k=None, require_encodable=True, low_toxicity=False,
+    )
+    names = {p.name for p in rec.profiles}
+    assert "bare" in names and "tagged" not in names
+
+
+def test_cloneable_bucket_only_has_encodable() -> None:
+    lib = [
+        ScreenCandidate(sequence="LLIILARRIRKQAHAHSK", name="bare"),
+        ScreenCandidate(sequence="AGYLLGKINLKALAALAKKIL", name="tagged", n_term_mod="Stearylation"),
+    ]
+    rec = recommend_for_algae(
+        anchor=_PVEC, library=lib, ledger=build_seed_ledger(), classifier=None,
+        top_k=None, low_toxicity=False,
+    )
+    cats = categorize(rec.profiles, _PVEC)
+    cloneable = [c for c in cats if c.key == "cloneable"]
+    assert cloneable and all(p.genetically_encodable for p in cloneable[0].profiles)
+
+
+def test_encodable_reason_present() -> None:
+    lib = [ScreenCandidate(sequence="AGYLLGKINLKALAALAKKIL", name="tagged", n_term_mod="Stearylation")]
+    rec = recommend_for_algae(
+        anchor=_PVEC, library=lib, ledger=build_seed_ledger(), classifier=None,
+        top_k=None, low_toxicity=False,
+    )
+    reasons = explain_profile(rec.profiles[0])
+    assert any("modified" in r.text.lower() and not r.positive for r in reasons)
+
+
 def test_categorize_returns_distinct_buckets() -> None:
     rec = _rec(algae_mode=True, low_toxicity=False, top_k=None)
     cats = categorize(rec.profiles, _PVEC, per_bucket=3)

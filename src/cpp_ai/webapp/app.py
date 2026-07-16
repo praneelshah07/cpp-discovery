@@ -149,6 +149,8 @@ def _table(profiles: list[Any]) -> pd.DataFrame:
         row["Toxicity risk"] = _toxicity_label(p)
         row["Confidence"] = p.ad_confidence
         row["Evidence"] = _evidence_label(p)
+        row["Cloneable"] = "✓" if p.genetically_encodable else "—"
+        row["Tested form"] = p.modification
         row["Sequence identity"] = _pct(p.global_identity)
         rows.append(row)
     return pd.DataFrame(rows)
@@ -199,6 +201,13 @@ choice = st.sidebar.selectbox("Anchor peptide", list(_PRESETS))
 anchor = st.sidebar.text_input("Sequence (one-letter)", value=_PRESETS[choice]).strip().upper()
 n_show = st.sidebar.slider("How many recommendations", 5, 40, 15)
 low_tox = st.sidebar.checkbox("Prioritize lower-toxicity candidates", value=True)
+encodable_only = st.sidebar.checkbox(
+    "Cloneable only (mCherry-fusion ready)",
+    value=False,
+    help="Keep only peptides tested as the bare amino-acid sequence — no "
+    "amidation, lipidation, or fluorophore/nanoparticle conjugation. Only ~30% "
+    "of the library qualifies; even pVEC was tested fluorescein-tagged + amidated.",
+)
 algae_mode = st.sidebar.checkbox(
     "Optimize for algae delivery (evidence-based)",
     value=False,
@@ -294,6 +303,7 @@ filtered_full = filter_and_rank(
     low_toxicity=low_tox,
     max_identity=max_identity,
     max_lysis_risk=max_lysis_risk,
+    require_encodable=encodable_only,
     rank_by=rank_by,
     collapse_families=collapse_families,
 )
@@ -377,7 +387,13 @@ with st.expander("ℹ️ What do these columns mean?"):
         "from charge and uptake mechanism. Not a measured value.\n"
         "- **Confidence** — how similar this peptide is to ones the tool has seen; 'low' "
         "means an unusual sequence — treat its scores cautiously.\n"
-        "- **Evidence** — an experimentally-studied CPP, or a computational candidate."
+        "- **Evidence** — an experimentally-studied CPP, or a computational candidate.\n"
+        "- **Cloneable / Tested form** — whether the peptide was tested as the bare "
+        "amino-acid sequence (✓, mCherry-fusion ready) or in a chemically modified "
+        "form (amidation, lipidation, fluorophore/nanoparticle conjugation). Only "
+        "~30% of the library is cloneable as tested — even pVEC was fluorescein-"
+        "tagged and amidated — so a modified peptide's measured behavior may not "
+        "transfer to a plain fusion."
     )
 
 # ---- downloads ----
