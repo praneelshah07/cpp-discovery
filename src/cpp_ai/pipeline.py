@@ -58,6 +58,31 @@ CELL_WALL_CONTEXT = (
     "wet-lab data, not by these sequence-only scores."
 )
 
+# mCherry net charge estimate at pH 7 (pI ~5.6). Variant-/tag-/Met-/pKa-dependent —
+# an estimate, not a measurement. Used ONLY for the advisory fusion-charge display.
+MCHERRY_NET_CHARGE = -6
+
+# Cargo advisory. The ranking scores the CPP's own (local-patch) charge — it does
+# NOT subtract the cargo's charge, because adsorption is driven by the CPP's local
+# cationic patch, not the complex net charge (see docs/architecture.md, Box 4).
+CARGO_CONTEXT = (
+    "Fusion advisory: ranking uses the CPP's own charge (its local cationic patch "
+    "drives surface binding), NOT the complex net charge. A CPP–mCherry fusion is "
+    f"near-neutral overall (mCherry ≈ {MCHERRY_NET_CHARGE:+d}) but keeps a localized "
+    "cationic terminus; the cargo's effect on algal binding cannot be inferred by "
+    "subtracting net charges and is best resolved empirically."
+)
+
+
+def charge_density(profile: EvidenceProfile) -> float:
+    """CPP net charge per residue — a local cationic-patch proxy (advisory)."""
+    return profile.net_charge / len(profile.sequence) if profile.sequence else 0.0
+
+
+def fusion_charge_estimate(profile: EvidenceProfile) -> int:
+    """Advisory estimate of the CPP+mCherry complex net charge (NOT used to rank)."""
+    return profile.net_charge + MCHERRY_NET_CHARGE
+
 # Canonical anchors. pVEC is the default: it has real *Chlamydomonas* data,
 # whereas ClWOX is not yet demonstrated in algae (plant vs algal cell-wall
 # chemistry differ), so ClWOX stays available but is not the default.
@@ -244,6 +269,8 @@ class AlgaeRecommendation:
                 "family": peptide_family(p.sequence),
                 "length": len(p.sequence),
                 "net_charge": p.net_charge,
+                "charge_density": round(charge_density(p), 2),
+                "fusion_charge_est": fusion_charge_estimate(p),
             }
             if p.algae_fit is not None:
                 row["usable_delivery"] = round(usable_delivery(p), 3)

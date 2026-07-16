@@ -165,6 +165,23 @@ def test_usable_delivery_squares_lysis_and_applies_fusion() -> None:
         assert squared < linear
 
 
+def test_fusion_advisory_is_informational_not_ranking() -> None:
+    from cpp_ai.pipeline import (
+        MCHERRY_NET_CHARGE,
+        charge_density,
+        fusion_charge_estimate,
+    )
+    rec = _rec(algae_mode=True, top_k=None)
+    p = rec.profiles[0]
+    assert fusion_charge_estimate(p) == p.net_charge + MCHERRY_NET_CHARGE
+    assert abs(charge_density(p) - p.net_charge / len(p.sequence)) < 1e-9
+    # advisory must NOT affect ranking: usable_delivery ignores cargo charge
+    assert usable_delivery(p) == (
+        p.surface_adsorption * p.algae_fit  # type: ignore[operator]
+        * (1 - p.lysis_risk) ** 2 * p.fusion_confidence
+    )
+
+
 def test_usable_delivery_zero_without_algae_fit() -> None:
     rec = _rec(algae_mode=False, top_k=1)
     assert usable_delivery(rec.profiles[0]) == 0.0

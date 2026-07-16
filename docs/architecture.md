@@ -46,9 +46,10 @@ peptide properties — they live in Box 5.*
 - **Evidence grade:** direction **strong** (universal + algae-confirmed); breadth
   **partial** (charge-only).
 - **Predictor now → later:** literature rule (broaden to charge distribution +
-  Arg/Lys) → possibly trained on algal binding data.
-- **Refinement (see below):** must be computed on the **CPP + cargo complex**, not
-  the free peptide.
+  Arg/Lys + local **charge density**) → possibly trained on algal binding data.
+- **Refinement (see Box 4):** driven by the CPP's **local cationic patch**, not the
+  complex net charge. Cargo charge is a *fusion-level advisory* (solubility /
+  orientation / long-range approach), **not** a subtraction from the CPP's charge.
 
 ## Box 2 — Membrane traversal
 
@@ -91,25 +92,43 @@ empty and is arguably **more important than previously credited**.
 - **Current score:** only `screening.modification.fusion_confidence` (encodability)
   touches the fusion; cargo charge/size/fold are **not modeled**.
 - **Evidence grade:** **thin** — the highest-value under-modeled process.
-- **Key finding (mCherry complex charge):** mCherry has **pI ≈ 5.6** and carries
-  **≈ −6 net charge at pH 7** (−5.9 computed; −6.6 at pH 7.4). So:
+- **mCherry charge (estimate):** pI ≈ 5.6, net charge **≈ −6 at pH 7**
+  (variant-/tag-/Met-/pKa-model-dependent — an estimate, not a measurement).
 
-  ```
-  complex charge ≈ CPP charge + (~ −6)
-  ```
+- **⚠ Do NOT subtract net charges (a corrected mistake).** An earlier version of
+  this doc inferred that because `complex charge ≈ CPP + cargo`, the free CPP must
+  be **~+10 to +12** to keep the complex in the +4…+6 window. **That is wrong**, for
+  three independent reasons:
+  1. **Point-charge fallacy.** Adsorption is governed by the **local charge density
+     of the region that approaches the surface** (the CPP's dense cationic patch),
+     plus orientation — *not* the complex's net charge. mCherry's −6 is smeared
+     over a ~4 nm, 236-residue globule and, on the far side of the complex and
+     beyond the Debye length, does not neutralize the local CPP–surface contact.
+  2. **It contradicts the toxicity ceiling.** R9 is **+9 and algae-toxic**; pushing
+     toward +10…+12 drives candidates into the membrane-destabilizing regime the
+     model already penalizes.
+  3. **It contradicts the data.** pVEC (**+6**) delivered 6–150 kDa protein into
+     *Chlamydomonas* (Kang 2017; non-covalently). If +6 works, a +10…+12 requirement
+     is falsified.
 
-  A CPP that is **+6 alone** — ideal by the free-peptide sweet spot — becomes a
-  **net-neutral/negative complex (~0)** once fused, which would **fail to adsorb**
-  (Box 1). To land the *complex* in the productive **+4…+6** window, the free CPP
-  should be **~+10 to +12.** Fusing an anionic protein therefore **shifts the
-  charge optimum upward** and makes the whole problem harder than the small-dye
-  CPP literature implies. Box 1 should be scored on the **complex**, so Box 4
-  feeds back into Box 1 through this charge offset.
+- **Correct model — two levels:**
+  - *Peptide-level* (drives Boxes 1–2): **local charge / cationic-patch density**,
+    Arg/Lys, amphipathicity, patterning, lysis. The CPP's own **+4…+6** sweet spot
+    is unchanged.
+  - *Fusion-level* (this box, **advisory not a reweight**): total fusion net charge
+    (→ solubility, orientation, long-range approach, nonspecific adsorption), CPP
+    local charge **density**, junction charge, CPP solvent accessibility, linker
+    length/flexibility, orientation, aggregation, and — decisively — **empirical
+    protein-cargo delivery evidence**.
+- **Honest statement the tool should make:** *the fusion is near-neutral overall
+  but retains a localized cationic CPP terminus; the effect of cargo charge on
+  algal binding cannot be inferred by subtracting net charges — it is a
+  fusion-level uncertainty best resolved empirically.*
 - **Also in this box (mostly empirical):** cargo must stay folded/fluorescent
   after delivery; free-terminus requirements; N- vs C-terminal fusion; steric
   occlusion of the CPP by the cargo.
-- **Predictor now → later:** complex-charge rule now → empirical/trained on
-  fusion-delivery data later.
+- **Predictor now → later:** peptide-level local-patch rule (Box 1) + fusion-level
+  **advisory** signals now → empirical/trained on fusion-delivery data later.
 
 ## Box 5 — Experimental transferability
 
@@ -141,7 +160,7 @@ should be verified explicitly before trusting wall assumptions.*
 
 | Box | Current term | Status |
 |---|---|---|
-| 1 Surface interaction | `surface_adsorption` | partial (charge-only; should use complex charge) |
+| 1 Surface interaction | `surface_adsorption` | partial (net charge only; broaden to local charge density/distribution) |
 | 2 Membrane traversal | `insertion_fit` | partial (wall as context) |
 | 3 Cell survival | `(1 − lysis)²` heuristic | **weak** — replace with a trained membrane-disruption prior |
 | 4 Cargo compatibility | (only `fusion_confidence`) | **near-empty** — add complex-charge, fold/fluorescence |
@@ -150,6 +169,7 @@ should be verified explicitly before trusting wall assumptions.*
 **Sequencing rule:** define the process (this doc), *then* choose each box's
 predictor type. Do not optimize equations before the boxes are agreed. Highest-
 value next work, in order: (1) Box 3 trained membrane-disruption prior; (2) Box 4
-complex-charge scoring + fold retention; (3) Box 1 broadening; and — decisively —
+fusion-level *advisory* signals (charge density, fusion-charge mismatch flag,
+fold retention) + Box 1 broadening to local charge density; and — decisively —
 growing the **algae/Auxenochlorella evidence ledger**, since Boxes 2–4 are
 ultimately empirical.

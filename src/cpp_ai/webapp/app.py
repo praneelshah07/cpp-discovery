@@ -30,9 +30,12 @@ from cpp_ai.evidence import EvidenceLedger  # noqa: E402
 from cpp_ai.generation import net_charge  # noqa: E402
 from cpp_ai.scoring import AlgaeFitScorer, EvidenceScorer  # noqa: E402
 from cpp_ai.pipeline import (  # noqa: E402
+    CARGO_CONTEXT,
     CELL_WALL_CONTEXT,
+    charge_density,
     explain_profile,
     filter_and_rank,
+    fusion_charge_estimate,
     group_families,
     peptide_family,
     usable_delivery,
@@ -152,6 +155,7 @@ st.info(
     icon="🔬",
 )
 st.caption(CELL_WALL_CONTEXT)
+st.caption(CARGO_CONTEXT)
 
 if not _DATA.exists():
     st.error(f"CPPsite3 data not found at {_DATA}. See docs/data_sources.md.")
@@ -209,6 +213,7 @@ def _lean_table(family_groups: list[Any]) -> pd.DataFrame:
             "Insertion fit": _pct(p.algae_fit),
             "Lysis": ("⚠ " if p.lysis_risk >= _LYSIS_WARN else "") + f"{p.lysis_risk:.2f}",
             "Charge": p.net_charge,
+            "Charge density": round(charge_density(p), 2),
             "Cloneable": "✓" if p.genetically_encodable else "—",
             "Confidence": p.ad_confidence,
             "Variants": g.size,
@@ -248,6 +253,13 @@ if sel != "—":
     st.markdown(
         f"`{p.sequence}` · **{peptide_family(p.sequence)}** · length {len(p.sequence)} · "
         f"{'cloneable (mCherry-fusion ready)' if p.genetically_encodable else 'tested form: ' + p.modification}"
+    )
+    st.caption(
+        f"Fusion advisory (not used to rank): CPP charge **{p.net_charge:+d}** · "
+        f"charge density **{charge_density(p):.2f}** /residue · est. CPP–mCherry "
+        f"complex charge **{fusion_charge_estimate(p):+d}** (mCherry ≈ −6). "
+        "Surface binding is driven by the CPP's local cationic patch, not the "
+        "complex net charge — so a near-neutral complex is *not* a failed construct."
     )
     st.markdown("**Why it ranks here:**")
     st.markdown(_reasons_md(p))
