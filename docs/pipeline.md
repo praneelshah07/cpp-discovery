@@ -75,6 +75,26 @@ number. Shown inline in the categorized view and via the app's
 `peptide_family(seq)` is a coarse mechanistic tag (Homeodomain / Transportan /
 pVEC-like / Polyarginine / …) so a panel reveals as a few mechanisms, not ten.
 
+## Usable-delivery score (the default algae ranking)
+
+`usable_delivery(p) = algae_fit × (1 − lysis_risk)² × fusion_confidence`.
+
+- The **squared** lysis term (per external review) penalizes membrane-lytic
+  peptides aggressively — transportan drops from ~29 to ~8 — so a lytic peptide
+  never sits next to a balanced one on amphipathicity alone.
+- `fusion_confidence` folds modification-awareness into the *logic* (no toggle):
+  cloneable 1.0 · terminal cap 0.9 · tracer label 0.8 · functional conjugate
+  (lipid/nanoparticle) 0.4 · non-canonical residue 0.15. A peptide whose function
+  may depend on a non-encodable conjugate is discounted automatically.
+- Honest limit: melittin stays mid-pack — its hydrophobic-helix + cationic-tail
+  architecture defeats a GRAVY-based lysis proxy, and a `longest_hydrophobic_run`
+  penalty backfires (pVEC has a longer run). Proper separation needs a real
+  hemolysis model (deferred).
+
+`group_families(profiles, threshold)` returns `FamilyGroup(representative,
+members)` so the UI shows a diverse list of representatives yet can expand any
+scaffold to its ranked variants.
+
 ## Modification-awareness (the tested form ≠ the naked sequence)
 
 CPPsite3 records the form each peptide was *actually tested* in

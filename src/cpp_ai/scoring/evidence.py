@@ -79,6 +79,7 @@ class EvidenceProfile:
     modification: str
     modification_class: str
     genetically_encodable: bool
+    fusion_confidence: float  # trust the naked cloned sequence matches the tested form
     # convenience ordering (transparent; components above)
     shortlist_score: float
 
@@ -239,6 +240,7 @@ class EvidenceScorer:
                     modification=mod.summary,
                     modification_class=mod.modification_class,
                     genetically_encodable=mod.genetically_encodable,
+                    fusion_confidence=mod.fusion_confidence,
                     shortlist_score=_shortlist(
                         p.composite, motif, cpp, algae_fit, safety.safety_factor
                     ),

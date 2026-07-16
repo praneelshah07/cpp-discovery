@@ -10,9 +10,11 @@ from cpp_ai.pipeline import (
     categorize,
     explain_profile,
     filter_and_rank,
+    group_families,
     peptide_family,
     recommend_for_algae,
     resolve_anchor,
+    usable_delivery,
 )
 from cpp_ai.scoring import AlgaeFitScorer, EvidenceScorer
 from cpp_ai.screening.candidate import ScreenCandidate
@@ -144,6 +146,35 @@ def test_explain_profile_has_reasons() -> None:
     if map_p is not None:
         texts = [r.text for r in explain_profile(map_p) if not r.positive]
         assert any("lyt" in t.lower() for t in texts)
+
+
+def test_usable_delivery_squares_lysis_and_applies_fusion() -> None:
+    rec = _rec(algae_mode=True, low_toxicity=False, top_k=None)
+    p = rec.profiles[0]
+    expected = p.algae_fit * (1 - p.lysis_risk) ** 2 * p.fusion_confidence  # type: ignore[operator]
+    assert abs(usable_delivery(p) - expected) < 1e-9
+    # a lytic peptide is penalized harder by the squared term than the linear one
+    lytic = next((x for x in rec.profiles if x.lysis_risk > 0.5), None)
+    if lytic is not None and lytic.algae_fit is not None:
+        squared = usable_delivery(lytic)
+        linear = lytic.algae_fit * (1 - lytic.lysis_risk)
+        assert squared < linear
+
+
+def test_usable_delivery_zero_without_algae_fit() -> None:
+    rec = _rec(algae_mode=False, top_k=1)
+    assert usable_delivery(rec.profiles[0]) == 0.0
+
+
+def test_group_families_representative_and_members() -> None:
+    rec = _rec(algae_mode=True, low_toxicity=False, top_k=None)
+    groups = group_families(rec.profiles, 0.7)
+    # representatives are unique-ish scaffolds; members re-expand to the full set
+    assert sum(g.size for g in groups) == len(rec.profiles)
+    assert all(g.representative is g.members[0] for g in groups)
+    # near-identical pVEC variants land in one group
+    reps = [g.representative.name for g in groups]
+    assert len(reps) == len(set(reps))
 
 
 def test_require_encodable_filters_modified() -> None:

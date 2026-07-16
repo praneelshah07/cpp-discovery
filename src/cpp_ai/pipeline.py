@@ -247,7 +247,9 @@ class AlgaeRecommendation:
                 "net_charge": p.net_charge,
             }
             if p.algae_fit is not None:
+                row["usable_delivery"] = round(usable_delivery(p), 3)
                 row["algae_suitability"] = round(p.algae_fit, 3)
+                row["fusion_confidence"] = round(p.fusion_confidence, 2)
             row.update(
                 {
                     "physchem_similarity": round(p.physchem, 3),
@@ -337,32 +339,62 @@ def _load_classifier() -> Any:
         return pickle.load(fh)
 
 
-def _algae_priority(p: EvidenceProfile) -> float:
-    """Algae benefit discounted by membrane-lysis risk.
+def usable_delivery(p: EvidenceProfile) -> float:
+    """Usable algae-delivery score: ``algae_fit × (1 − lysis)² × fusion_confidence``.
 
-    A peptide only counts as algae-good if it is *also* gentle: an amphipathic,
-    net-hydrophobic, poorly-buffered peptide (TP10/MAP) can score high algae-fit
-    yet be membrane-lytic. Discounting by ``lysis_risk`` demotes exactly those
-    false positives, separating them from pVEC (low lysis risk)."""
-    return (p.algae_fit or 0.0) * (1.0 - p.lysis_risk)
+    The **squared** lysis term (per external review) penalizes membrane-lytic
+    peptides aggressively — melittin/transportan should not sit near a balanced
+    peptide just because the linear lysis discount was gentle. ``fusion_confidence``
+    folds modification-awareness in: a peptide whose function may depend on a
+    non-encodable conjugate is discounted, so the naked cloneable candidates win.
+    Returns ``algae_fit`` unchanged when no algae signal is available (fit None)."""
+    if p.algae_fit is None:
+        return 0.0
+    return p.algae_fit * (1.0 - p.lysis_risk) ** 2 * p.fusion_confidence
+
+
+def _algae_priority(p: EvidenceProfile) -> float:
+    return usable_delivery(p)
+
+
+@dataclass(frozen=True)
+class FamilyGroup:
+    """A near-duplicate scaffold: a top representative plus all ranked members."""
+
+    representative: EvidenceProfile
+    members: list[EvidenceProfile]  # ranked, includes the representative
+
+    @property
+    def size(self) -> int:
+        return len(self.members)
+
+
+def group_families(
+    profiles: Sequence[EvidenceProfile], threshold: float = 0.7
+) -> list[FamilyGroup]:
+    """Group near-duplicate scaffolds, keeping the top-ranked one as representative.
+
+    Uses a fast stdlib string-similarity ratio (not biological alignment): grouping
+    only needs "is this basically the same scaffold?". Assumes ``profiles`` is
+    already ranked best-first, so each group's first member is its representative.
+    Lets the UI show a diverse list yet expand any scaffold to its ranked variants.
+    """
+    groups: list[tuple[EvidenceProfile, list[EvidenceProfile]]] = []
+    for p in profiles:
+        for rep, members in groups:
+            if SequenceMatcher(None, p.sequence, rep.sequence).ratio() >= threshold:
+                members.append(p)
+                break
+        else:
+            groups.append((p, [p]))
+    return [FamilyGroup(representative=r, members=m) for r, m in groups]
 
 
 def _collapse_families(
     profiles: Sequence[EvidenceProfile], threshold: float
 ) -> list[EvidenceProfile]:
-    """Greedily keep the top-ranked representative of each near-duplicate family.
-
-    Uses a fast stdlib string-similarity ratio (not biological alignment): family
-    collapse only needs "is this basically the same scaffold?", so difflib is
-    both sufficient and cheap. Assumes ``profiles`` is already ranked best-first.
-    """
-    reps: list[EvidenceProfile] = []
-    for p in profiles:
-        if all(
-            SequenceMatcher(None, p.sequence, r.sequence).ratio() < threshold for r in reps
-        ):
-            reps.append(p)
-    return reps
+    """Keep the top-ranked representative of each near-duplicate family."""
+    return [g.representative for g in group_families(profiles, threshold)]
 
 
 def filter_and_rank(

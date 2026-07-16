@@ -22,17 +22,32 @@ from dataclasses import dataclass
 _NONE_VALUES = {"", "free", "na", "n/a", "none", "nan", "-"}
 
 # Modification categories, matched against the free-text descriptions.
-_LIPID = re.compile(r"stear|palmit|myrist|lipid|cholester|fatty|acyl", re.I)
+# "functional" conjugates plausibly drive uptake, so the naked cloned sequence
+# may not reproduce the tested behavior. "label" conjugates are assay tracers
+# (imaging/detection) the sequence does not need to function.
+_FUNCTIONAL = re.compile(
+    r"stear|palmit|myrist|lipid|cholester|fatty|acyl|nanoparticle|\bpmo\b|\bpeg\b|maleimide",
+    re.I,
+)
 _FLUORO = re.compile(
     r"fluoresc|fitc|tamra|carboxyfluor|6-?fam|\bcf\b|rhodamin|naphthofluor|\bdye\b|cy[357]",
     re.I,
 )
-_OTHER_CONJ = re.compile(r"biotin|nanoparticle|\bpmo\b|\bpeg\b|maleimide|azide|alkyne|click", re.I)
-_HANDLE = re.compile(r"cysteine|cysteamide|thiol", re.I)
+_LABEL = re.compile(r"biotin|cysteine|cysteamide|thiol|azide|alkyne|click", re.I)
 _TERMINAL = re.compile(r"amidation|acetylation|acetyl|amide", re.I)
 
 # Ordered by significance: a peptide's overall class is its most significant part.
 _CLASS_PRIORITY = ("noncanonical", "conjugate", "terminal", "none")
+
+# How much we trust that the *naked cloned sequence* reproduces the tested form,
+# per modification kind. Feeds the usable-delivery score (fusion confidence).
+_CONF = {
+    "noncanonical": 0.15,  # literally a different peptide
+    "functional": 0.40,    # uptake may depend on the (non-encodable) conjugate
+    "label": 0.80,         # assay tracer the sequence doesn't need
+    "terminal": 0.90,      # minor terminal cap
+    "none": 1.00,          # bare sequence as tested — cloneable
+}
 
 
 @dataclass(frozen=True)
@@ -43,6 +58,7 @@ class ModificationInfo:
     c_term: str
     chem: str
     modification_class: str  # none | terminal | conjugate | noncanonical
+    fusion_confidence: float  # trust that the naked cloned sequence matches (0..1)
     summary: str  # compact human string, or "none"
 
     @property
@@ -65,14 +81,15 @@ def _is_none(value: str) -> bool:
     return str(value).strip().lower() in _NONE_VALUES
 
 
-def _classify_terminal(value: str) -> str:
-    """Return the category for one N-/C-terminal modification value."""
-    if _LIPID.search(value) or _FLUORO.search(value) or _OTHER_CONJ.search(value) \
-            or _HANDLE.search(value):
-        return "conjugate"
+def _terminal_kind(value: str) -> str:
+    """Confidence key for one N-/C-terminal modification value."""
+    if _FUNCTIONAL.search(value):
+        return "functional"
+    if _FLUORO.search(value) or _LABEL.search(value):
+        return "label"
     if _TERMINAL.search(value):
         return "terminal"
-    return "conjugate"  # an unrecognized real terminal mod is still non-native
+    return "label"  # unrecognized terminal mod: moderate, not disqualifying
 
 
 def classify_modifications(n_term: str, c_term: str, chem: str) -> ModificationInfo:
@@ -82,27 +99,35 @@ def classify_modifications(n_term: str, c_term: str, chem: str) -> ModificationI
     chem = "" if _is_none(chem) else chem.strip()
 
     classes: set[str] = set()
+    conf_keys: set[str] = set()
     parts: list[str] = []
 
-    if n_term:
-        classes.add(_classify_terminal(n_term))
-        parts.append(f"N-term: {n_term}")
-    if c_term:
-        classes.add(_classify_terminal(c_term))
-        parts.append(f"C-term: {c_term}")
+    for label, val in (("N-term", n_term), ("C-term", c_term)):
+        if not val:
+            continue
+        kind = _terminal_kind(val)
+        conf_keys.add(kind)
+        classes.add("terminal" if kind == "terminal" else "conjugate")
+        parts.append(f"{label}: {val}")
     if chem:
-        # A chem entry is a conjugate if it names one, else a non-canonical residue.
-        if _OTHER_CONJ.search(chem) or _LIPID.search(chem) or _FLUORO.search(chem):
+        if _FUNCTIONAL.search(chem):
+            conf_keys.add("functional")
             classes.add("conjugate")
-        else:
+        elif _FLUORO.search(chem):
+            conf_keys.add("label")
+            classes.add("conjugate")
+        else:  # a chem entry we don't recognize is a non-canonical residue
+            conf_keys.add("noncanonical")
             classes.add("noncanonical")
         parts.append(f"chem: {chem}")
 
     klass = next((c for c in _CLASS_PRIORITY if c in classes), "none")
+    confidence = min((_CONF[k] for k in conf_keys), default=_CONF["none"])
     return ModificationInfo(
         n_term=n_term,
         c_term=c_term,
         chem=chem,
         modification_class=klass,
+        fusion_confidence=confidence,
         summary="; ".join(parts) if parts else "none",
     )

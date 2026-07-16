@@ -8,7 +8,6 @@ modules. Run:  streamlit run src/cpp_ai/webapp/app.py
 
 from __future__ import annotations
 
-import importlib.util
 import pickle
 import sys
 from pathlib import Path
@@ -29,18 +28,13 @@ import streamlit as st  # noqa: E402
 
 from cpp_ai.evidence import EvidenceLedger  # noqa: E402
 from cpp_ai.generation import net_charge  # noqa: E402
-from cpp_ai.scoring import (  # noqa: E402
-    CLWOX_CRITICAL,
-    AlgaeFitScorer,
-    CriticalPositionProfile,
-    EvidenceScorer,
-)
+from cpp_ai.scoring import AlgaeFitScorer, EvidenceScorer  # noqa: E402
 from cpp_ai.pipeline import (  # noqa: E402
-    RankBy,
-    categorize,
     explain_profile,
     filter_and_rank,
+    group_families,
     peptide_family,
+    usable_delivery,
 )
 from cpp_ai.screening import load_cppsite3_library  # noqa: E402
 from cpp_ai.screening.candidate import ScreenCandidate  # noqa: E402
@@ -51,9 +45,9 @@ _LEDGER = _ROOT / "data" / "curated" / "cpp_evidence_ledger.json"
 _EMB_CACHE = _ROOT / "data" / "processed" / "emb_cache"
 
 _PRESETS = {
-    "ClWOX (plant homeoprotein, best — 30%)": "TNVYNWFQNRRARTKRK",
-    "pVEC-R6A (your construct)": "LLIILARRIRKQAHAHSK",
-    "pVEC (wild-type)": "LLIILRRRIRKQAHAHSK",
+    "pVEC-R6A (your construct — algae-proven)": "LLIILARRIRKQAHAHSK",
+    "pVEC (wild-type — algae-proven)": "LLIILRRRIRKQAHAHSK",
+    "ClWOX (plant homeoprotein; not yet shown in algae)": "TNVYNWFQNRRARTKRK",
     "Custom…": "",
 }
 
@@ -75,13 +69,6 @@ def _classifier() -> Any:
         return None
     with open(path, "rb") as fh:
         return pickle.load(fh)
-
-
-def _embeddings_available() -> bool:
-    return (
-        importlib.util.find_spec("torch") is not None
-        and importlib.util.find_spec("esm") is not None
-    )
 
 
 @st.cache_resource(show_spinner=False)
@@ -123,7 +110,7 @@ def _evidence_label(profile: Any) -> str:
     return "Experimental CPP" if "experimental" in profile.evidence else "Computational"
 
 
-def _pct(x: float | None) -> object:
+def _pct(x: float | None) -> int | None:
     return None if x is None else round(x * 100)
 
 
@@ -156,36 +143,19 @@ def _table(profiles: list[Any]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _style(df: pd.DataFrame) -> Any:
-    if "Toxicity risk" not in df.columns:
-        return df
-
-    def color(v: object) -> str:
-        return {
-            "Low": "background-color:#d4edda",
-            "Moderate": "background-color:#fff3cd",
-            "High": "background-color:#f8d7da",
-            "⚠ membrane-lytic": "background-color:#f8d7da",
-        }.get(str(v), "")
-
-    styler = df.style
-    elementwise = getattr(styler, "map", None) or styler.applymap  # pandas <>=2.1
-    return elementwise(color, subset=["Toxicity risk"])
-
-
 # --------------------------------------------------------------------------- #
 # page
 # --------------------------------------------------------------------------- #
-st.title("🧬 CPP Discovery — peptide recommendations")
+st.title("🧬 CPP Discovery — algae-delivery candidates")
 st.markdown(
-    "Pick a peptide that works (an **anchor**) and this tool recommends the most "
-    "similar cell-penetrating peptides from a database of ~2,200 known CPPs — the "
-    "kind you could clone and test. Each recommendation shows *why* it was picked, "
-    "column by column."
+    "Pick a peptide that works (an **anchor**) and this tool ranks ~2,200 known, "
+    "cloneable cell-penetrating peptides for **delivery into microalgae** — "
+    "balancing similarity, an evidence-based algae profile, membrane-lysis safety, "
+    "and whether the peptide is genetically encodable for an mCherry fusion."
 )
 st.info(
-    "These are **computational suggestions for wet-lab testing** — not predictions "
-    "that a peptide will deliver cargo into algae. Use them to prioritize what to try.",
+    "Computational **hypotheses for wet-lab testing**, not algae-uptake predictions. "
+    "Click any candidate to see its properties and *why* it was ranked where it is.",
     icon="🔬",
 )
 
@@ -195,78 +165,17 @@ if not _DATA.exists():
 
 lib = _library()
 
-# ---- sidebar (kept intentionally minimal) ----
+# ---- sidebar (intentionally minimal — the logic is the star) ----
 st.sidebar.header("Your peptide")
-choice = st.sidebar.selectbox("Anchor peptide", list(_PRESETS))
+choice = st.sidebar.selectbox("Anchor peptide (a CPP that works)", list(_PRESETS))
 anchor = st.sidebar.text_input("Sequence (one-letter)", value=_PRESETS[choice]).strip().upper()
-n_show = st.sidebar.slider("How many recommendations", 5, 40, 15)
-low_tox = st.sidebar.checkbox("Prioritize lower-toxicity candidates", value=True)
-encodable_only = st.sidebar.checkbox(
-    "Cloneable only (mCherry-fusion ready)",
-    value=False,
-    help="Keep only peptides tested as the bare amino-acid sequence — no "
-    "amidation, lipidation, or fluorophore/nanoparticle conjugation. Only ~30% "
-    "of the library qualifies; even pVEC was tested fluorescein-tagged + amidated.",
+n_show = st.sidebar.slider("How many candidates", 5, 40, 15)
+st.sidebar.metric("Cloneable CPPs screened", len(lib))
+st.sidebar.caption(
+    "Ranked by **usable delivery** = algae-fit × (1 − lysis)² × cloneability. "
+    "Membrane-lytic peptides are kept but flagged ⚠. Near-identical scaffolds are "
+    "grouped — expand any candidate to see its variants."
 )
-algae_mode = st.sidebar.checkbox(
-    "Optimize for algae delivery (evidence-based)",
-    value=False,
-    help=(
-        "Re-rank using the physicochemical profile that actually worked in "
-        "microalgae in the literature — amphipathicity/hydrophobicity up, "
-        "pure cationic charge and aromaticity down. Learned from the curated "
-        "evidence ledger, not hardcoded."
-    ),
-    disabled=_algae_fit() is None,
-)
-rank_by: RankBy = "blend"
-max_identity: float | None = None
-max_lysis_risk: float | None = None
-collapse_families: float | None = None
-if algae_mode:
-    if st.sidebar.checkbox(
-        "Rank by algae-fit (most beneficial, not just similar)",
-        value=False,
-        help="Order by the empirical algae-winner profile instead of resemblance "
-        "to the anchor — surfaces peptides that are good for algae even if they "
-        "don't look like your anchor.",
-    ):
-        rank_by = "algae_fit"
-    if st.sidebar.checkbox(
-        "Look beyond close variants of the anchor",
-        value=False,
-        help="Drop candidates that are near-duplicates of the anchor (>60% "
-        "identity), so you see genuinely different scaffolds.",
-    ):
-        max_identity = 0.6
-    if st.sidebar.checkbox(
-        "Exclude membrane-lytic (AMP-like) candidates",
-        value=True,
-        help="Drop net-hydrophobic, poorly-buffered amphipaths (the TP10/MAP "
-        "family) that perturb membranes rather than translocate gently. This is "
-        "why pVEC works and lytic look-alikes don't.",
-    ):
-        max_lysis_risk = 0.6
-    if st.sidebar.checkbox(
-        "Collapse near-duplicate scaffolds",
-        value=False,
-        help="Keep one representative per near-identical family so the panel is "
-        "diverse (e.g. not eight TP10 variants).",
-    ):
-        collapse_families = 0.7
-
-with st.sidebar.expander("Advanced"):
-    scaffold = st.checkbox("Scaffold mode (score key residues W6/T14 vs ClWOX)", value=False)
-    exclude_homeodomain = st.checkbox("Exclude the well-known homeodomain family", value=False)
-    use_emb = (
-        st.checkbox("Use ESM-2 embeddings (slower)", value=False)
-        if _embeddings_available()
-        else False
-    )
-    if not _embeddings_available():
-        st.caption("ESM-2 embeddings unavailable here (torch not installed).")
-
-st.sidebar.metric("CPPs in the library", len(lib))
 
 if not anchor:
     st.info("Enter an anchor peptide sequence in the sidebar to begin.")
@@ -276,132 +185,114 @@ st.markdown(
     f"**Anchor:** `{anchor}` · net charge **{net_charge(anchor):+d}** · length **{len(anchor)}**"
 )
 
-# ---- score + filter ----
-crit_profile = None
-if scaffold:
-    crit_profile = (
-        CLWOX_CRITICAL if anchor == "TNVYNWFQNRRARTKRK"
-        else CriticalPositionProfile.uniform(anchor)
-    )
+# ---- score (always optimized for algae delivery) ----
+_algae_on = _algae_fit() is not None
+with st.spinner("Scoring the library for algae delivery…"):
+    profiles = _scorer(False, _algae_on).profile(anchor)
 
-with st.spinner("Finding and scoring similar CPPs…"):
-    profiles = _scorer(use_emb, algae_mode).profile(anchor, critical_profile=crit_profile)
+# usable-delivery ranking; keep lytic peptides (warn, don't exclude).
+ranked = filter_and_rank(profiles, anchor, low_toxicity=False, rank_by="algae_fit")
+groups = group_families(ranked, 0.7)[:n_show]
+reps = [g.representative for g in groups]
 
-if algae_mode:
-    st.success(
-        "**Algae-delivery mode on.** Ranking now favors the physicochemical "
-        "profile that worked in microalgae (amphipathic + hydrophobic, lower pure "
-        "charge) — the empirical opposite of the generic 'add arginine' prior. "
-        "Derived from a small curated evidence ledger, so treat it as a "
-        "hypothesis-sharpener, not proof.",
-        icon="🌱",
-    )
-
-filtered_full = filter_and_rank(
-    profiles,
-    anchor,
-    low_toxicity=low_tox,
-    max_identity=max_identity,
-    max_lysis_risk=max_lysis_risk,
-    require_encodable=encodable_only,
-    rank_by=rank_by,
-    collapse_families=collapse_families,
-)
-if exclude_homeodomain:
-    filtered_full = [p for p in filtered_full if "WFQN" not in p.sequence]
-filtered = filtered_full[:n_show]
-
-_fit_for_reasons = _algae_fit() if algae_mode else None
+_LYSIS_WARN = 0.5
 
 
 def _reasons_md(profile: Any) -> str:
-    reasons = explain_profile(profile, fit_scorer=_fit_for_reasons)
+    reasons = explain_profile(profile, fit_scorer=_algae_fit() if _algae_on else None)
     return "\n".join(f"- {'✓' if r.positive else '✕'} {r.text}" for r in reasons)
 
 
-group_view = st.checkbox(
-    "Group into hypotheses (a few distinct bets, not one long list)",
-    value=False,
-    help="Instead of a ranked table, split candidates into distinct testable "
-    "hypotheses — closest / most novel / gentlest / best algae profile — so the "
-    "wet lab tests different ideas, not near-duplicates.",
+def _lean_table(family_groups: list[Any]) -> pd.DataFrame:
+    rows = []
+    for g in family_groups:
+        p = g.representative
+        rows.append({
+            "Peptide": p.name,
+            "Family": peptide_family(p.sequence),
+            "Usable delivery": _pct(usable_delivery(p)) if p.algae_fit is not None else None,
+            "Algae suitability": _pct(p.algae_fit),
+            "Lysis": ("⚠ " if p.lysis_risk >= _LYSIS_WARN else "") + f"{p.lysis_risk:.2f}",
+            "Charge": p.net_charge,
+            "Cloneable": "✓" if p.genetically_encodable else "—",
+            "Confidence": p.ad_confidence,
+            "Variants": g.size,
+        })
+    return pd.DataFrame(rows)
+
+
+st.subheader(f"Top {len(reps)} algae-delivery candidates")
+st.caption(
+    "A **diverse** shortlist — near-identical scaffolds are grouped into one row "
+    "(see the Variants count). ⚠ marks membrane-lytic peptides that may be toxic "
+    "and need testing."
 )
+st.dataframe(_lean_table(groups), use_container_width=True, hide_index=True)
 
-if group_view:
-    all_cats = categorize(filtered_full, anchor, per_bucket=4)
-    titles = [c.title for c in all_cats]
-    chosen = st.multiselect("Which hypotheses to show", titles, default=titles)
-    st.caption("Each bucket is a different bet. A peptide can appear in more than one.")
-    for c in all_cats:
-        if c.title not in chosen:
-            continue
-        with st.expander(f"🧪 {c.title} — {c.rationale}", expanded=True):
-            for p in c.profiles:
-                af = f" · algae-suit **{_pct(p.algae_fit)}**" if p.algae_fit is not None else ""
-                st.markdown(
-                    f"**{p.name}** &nbsp;`{p.sequence}`  \n"
-                    f"{peptide_family(p.sequence)} · charge {p.net_charge:+d} · "
-                    f"lysis {p.lysis_risk:.2f}{af}"
-                )
-                st.markdown(_reasons_md(p))
-else:
-    st.subheader(f"Top {len(filtered)} recommended peptides")
-    st.dataframe(_style(_table(filtered)), use_container_width=True, hide_index=True)
-    if filtered:
-        pick = st.selectbox(
-            "Why was a peptide recommended?", ["—"] + [p.name for p in filtered]
+# ---- inspect one candidate: properties + why it fits algae + variants ----
+st.markdown("### 🔬 Inspect a candidate")
+sel = st.selectbox("Pick a candidate to see its properties and why it ranks here",
+                   ["—"] + [g.representative.name for g in groups])
+if sel != "—":
+    g = next(g for g in groups if g.representative.name == sel)
+    p = g.representative
+    if p.lysis_risk >= _LYSIS_WARN:
+        st.warning(
+            "This peptide looks **membrane-lytic** (AMP-like). It may enter cells but "
+            "could also damage membranes / be toxic — treat as a hypothesis needing "
+            "wet-lab toxicity testing.",
+            icon="⚠️",
         )
-        if pick != "—":
-            chosen_p = next(p for p in filtered if p.name == pick)
-            st.markdown(f"**{pick}** `{chosen_p.sequence}` — {peptide_family(chosen_p.sequence)}")
-            st.markdown(_reasons_md(chosen_p))
-
-with st.expander("ℹ️ What do these columns mean?"):
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Usable delivery", _pct(usable_delivery(p)) if p.algae_fit is not None else "—")
+    c1.metric("Algae suitability", _pct(p.algae_fit))
+    c2.metric("Lysis risk", f"{p.lysis_risk:.2f}")
+    c2.metric("Net charge", f"{p.net_charge:+d}")
+    c3.metric("Fusion confidence", f"{p.fusion_confidence:.2f}")
+    c3.metric("CPP likelihood", _pct(p.cpp_probability) if p.cpp_probability is not None else "—")
     st.markdown(
-        "- **Family** — a coarse mechanistic tag (heuristic), so ten hits reveal as a "
-        "few mechanisms, not ten independent ones.\n"
-        "- **Composite score** — a convenience 0–100 blend of the columns below (how it's "
-        "ranked). It is not a probability; always read the individual columns.\n"
-        "- **Similarity to anchor** — how close its physical/chemical make-up (charge, "
-        "hydrophobicity, amphipathicity, shape, composition, arrangement) is to your "
-        "anchor. 100 = essentially the same profile.\n"
-        "- **Shared motif** — does it contain a similar short stretch of sequence to the "
-        "anchor (a shared 'motif')?\n"
-        "- **Algae suitability** *(algae mode)* — how well the peptide matches the "
-        "physicochemical profile of CPPs that actually worked in microalgae "
-        "(amphipathic/hydrophobic, lower pure charge). A design heuristic from the curated "
-        "evidence ledger, **not** a delivery probability.\n"
-        "- **Sequence identity** — overall % of amino acids that match end-to-end. On its "
-        "own weakly informative (10% identity can still mean different function).\n"
-        "- **CPP likelihood** — a trained model's estimate that it's a genuine "
-        "cell-penetrating peptide (not how well it enters algae).\n"
-        "- **Key-residue match** *(scaffold mode)* — how well it preserves the residues "
-        "shown to matter in ClWOX (W6, T14).\n"
-        "- **Net charge** — positive minus negative residues. Very high charge tends to be "
-        "toxic to algae.\n"
-        "- **Lysis risk** — heuristic membrane-lysis (AMP-like) risk from net "
-        "hydrophobicity + amphipathicity + low polar buffering. High = perturbs "
-        "membranes (TP10/MAP-like) rather than entering gently; pVEC is low. A "
-        "prior, not a measured hemolysis value.\n"
-        "- **Toxicity risk** — a heuristic flag (Low / Moderate / High, or membrane-lytic) "
-        "from charge and uptake mechanism. Not a measured value.\n"
-        "- **Confidence** — how similar this peptide is to ones the tool has seen; 'low' "
-        "means an unusual sequence — treat its scores cautiously.\n"
-        "- **Evidence** — an experimentally-studied CPP, or a computational candidate.\n"
-        "- **Cloneable / Tested form** — whether the peptide was tested as the bare "
-        "amino-acid sequence (✓, mCherry-fusion ready) or in a chemically modified "
-        "form (amidation, lipidation, fluorophore/nanoparticle conjugation). Only "
-        "~30% of the library is cloneable as tested — even pVEC was fluorescein-"
-        "tagged and amidated — so a modified peptide's measured behavior may not "
-        "transfer to a plain fusion."
+        f"`{p.sequence}` · **{peptide_family(p.sequence)}** · length {len(p.sequence)} · "
+        f"{'cloneable (mCherry-fusion ready)' if p.genetically_encodable else 'tested form: ' + p.modification}"
+    )
+    st.markdown("**Why it ranks here:**")
+    st.markdown(_reasons_md(p))
+    if g.size > 1:
+        with st.expander(f"🧬 See all {g.size} variants of this scaffold (ranked)"):
+            st.dataframe(_lean_table([group_families([m], 1.0)[0] for m in g.members]),
+                         use_container_width=True, hide_index=True)
+
+filtered = reps  # used by the download section below
+
+with st.expander("ℹ️ How the ranking works"):
+    st.markdown(
+        "Candidates are ordered by **usable delivery = algae suitability × "
+        "(1 − lysis risk)² × fusion confidence** — so a peptide has to be a good "
+        "algae-profile match, gentle on membranes, *and* cloneable to rank highly.\n\n"
+        "- **Usable delivery** — the headline 0–100 ranking score above. A design "
+        "heuristic, **not** a delivery probability.\n"
+        "- **Algae suitability** — match to the physicochemical profile of CPPs that "
+        "actually worked in microalgae (amphipathic/hydrophobic, moderate charge, low "
+        "aromaticity), learned from the curated evidence ledger.\n"
+        "- **Lysis** — heuristic membrane-lysis (AMP-like) risk. ⚠ (≥0.50) = perturbs "
+        "membranes (TP10/MAP-like) rather than entering gently; kept but flagged for "
+        "toxicity testing. A prior, not a measured hemolysis value.\n"
+        "- **Cloneable / Fusion confidence** — whether the peptide was tested as the "
+        "bare sequence (✓, mCherry-fusion ready) or in a form that may not transfer "
+        "(fluorescein tag, amidation, lipidation, non-canonical residues). Only ~30% "
+        "of the library is fully cloneable — even pVEC was tested tagged + amidated.\n"
+        "- **Family** — a coarse mechanistic tag (heuristic). **Variants** — how many "
+        "near-identical scaffolds are grouped under this row (expand via *Inspect*).\n"
+        "- **Confidence** — how close the peptide is to ones the tool has seen; 'low' "
+        "means an unusual sequence — treat its scores cautiously."
     )
 
 # ---- downloads ----
 if filtered:
     df = _table(filtered)
     fasta = "".join(
-        f">{p.name.replace(' ', '_')} | match={p.shortlist_score*100:.0f} "
-        f"charge={p.net_charge:+d} toxicity={_toxicity_label(p)}\n{p.sequence}\n"
+        f">{p.name.replace(' ', '_')} | usable={usable_delivery(p)*100:.0f} "
+        f"charge={p.net_charge:+d} lysis={p.lysis_risk:.2f} "
+        f"{'cloneable' if p.genetically_encodable else 'modified'}\n{p.sequence}\n"
         for p in filtered
     )
     c1, c2 = st.columns(2)
