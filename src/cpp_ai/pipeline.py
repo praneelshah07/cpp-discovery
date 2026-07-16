@@ -26,6 +26,7 @@ import argparse
 import pickle
 import sys
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
@@ -105,6 +106,7 @@ class AlgaeRecommendation:
             if p.cpp_probability is not None:
                 row["cpp_likelihood"] = round(p.cpp_probability, 3)
             row["toxicity_risk"] = p.toxicity_flag
+            row["lysis_risk"] = round(p.lysis_risk, 2)
             row["confidence"] = p.ad_confidence
             row["evidence"] = p.evidence
             rows.append(row)
@@ -132,15 +134,15 @@ class AlgaeRecommendation:
                 f"{t.descriptor} {t.prefers}" for t in self.fit_scorer.terms
             )
             lines += [f"**Algae-fit prefers:** {prefs}", ""]
-        header = "| # | peptide | seq | len | chg | algae_fit | phys | motif | id | tox |"
-        sep = "|---|---|---|---|---|---|---|---|---|---|"
+        header = "| # | peptide | seq | len | chg | algae_fit | lysis | phys | motif | id | tox |"
+        sep = "|---|---|---|---|---|---|---|---|---|---|---|"
         lines += [header, sep]
         for i, p in enumerate(shown, 1):
             af = f"{p.algae_fit:.2f}" if p.algae_fit is not None else "—"
             lines.append(
                 f"| {i} | {p.name} | `{p.sequence}` | {len(p.sequence)} | "
-                f"{p.net_charge:+d} | {af} | {p.physchem:.2f} | {p.motif_local:.2f} | "
-                f"{p.global_identity:.2f} | {p.toxicity_flag} |"
+                f"{p.net_charge:+d} | {af} | {p.lysis_risk:.2f} | {p.physchem:.2f} | "
+                f"{p.motif_local:.2f} | {p.global_identity:.2f} | {p.toxicity_flag} |"
             )
         return "\n".join(lines) + "\n"
 
@@ -152,20 +154,51 @@ def _load_classifier() -> Any:
         return pickle.load(fh)
 
 
+def _algae_priority(p: EvidenceProfile) -> float:
+    """Algae benefit discounted by membrane-lysis risk.
+
+    A peptide only counts as algae-good if it is *also* gentle: an amphipathic,
+    net-hydrophobic, poorly-buffered peptide (TP10/MAP) can score high algae-fit
+    yet be membrane-lytic. Discounting by ``lysis_risk`` demotes exactly those
+    false positives, separating them from pVEC (low lysis risk)."""
+    return (p.algae_fit or 0.0) * (1.0 - p.lysis_risk)
+
+
+def _collapse_families(
+    profiles: Sequence[EvidenceProfile], threshold: float
+) -> list[EvidenceProfile]:
+    """Greedily keep the top-ranked representative of each near-duplicate family.
+
+    Uses a fast stdlib string-similarity ratio (not biological alignment): family
+    collapse only needs "is this basically the same scaffold?", so difflib is
+    both sufficient and cheap. Assumes ``profiles`` is already ranked best-first.
+    """
+    reps: list[EvidenceProfile] = []
+    for p in profiles:
+        if all(
+            SequenceMatcher(None, p.sequence, r.sequence).ratio() < threshold for r in reps
+        ):
+            reps.append(p)
+    return reps
+
+
 def filter_and_rank(
     profiles: Sequence[EvidenceProfile],
     anchor_seq: str,
     *,
     low_toxicity: bool = True,
     max_identity: float | None = None,
+    max_lysis_risk: float | None = None,
     rank_by: RankBy = "blend",
+    collapse_families: float | None = None,
 ) -> list[EvidenceProfile]:
     """The shared filter + rank *policy*, used by both the app and the CLI.
 
     Kept separate from scoring so the (expensive, cached) EvidenceScorer step can
     be reused by front-ends while this cheap policy runs every interaction. Drops
-    the anchor itself, optionally toxic candidates and near-variants of the
-    anchor, then orders by ``rank_by``.
+    the anchor, optionally toxic / membrane-lytic candidates and near-variants of
+    the anchor, orders by ``rank_by`` (algae-fit is discounted by lysis risk),
+    then optionally collapses near-duplicate scaffolds to one representative.
     """
     identity = SequenceIdentity()
     anchor_feat = PeptideFeatures(sequence=anchor_seq)
@@ -176,6 +209,8 @@ def filter_and_rank(
             continue
         if low_toxicity and (p.lytic_risk or p.toxicity_flag == "HIGH-RISK"):
             continue
+        if max_lysis_risk is not None and p.lysis_risk >= max_lysis_risk:
+            continue
         if max_identity is not None:
             gid = identity(anchor_feat, PeptideFeatures(sequence=p.sequence))
             if gid >= max_identity:
@@ -183,8 +218,11 @@ def filter_and_rank(
         kept.append(p)
 
     if rank_by == "algae_fit":
-        kept.sort(key=lambda p: (p.algae_fit or 0.0, p.shortlist_score), reverse=True)
+        kept.sort(key=lambda p: (_algae_priority(p), p.shortlist_score), reverse=True)
     # "blend" preserves EvidenceScorer's existing shortlist ordering.
+
+    if collapse_families is not None:
+        kept = _collapse_families(kept, collapse_families)
     return kept
 
 
@@ -199,6 +237,8 @@ def recommend_for_algae(
     low_toxicity: bool = True,
     rank_by: RankBy = "blend",
     max_identity: float | None = None,
+    max_lysis_risk: float | None = None,
+    collapse_families: float | None = None,
     critical_profile: CriticalPositionProfile | None = None,
     embedding_service: object | None = None,
 ) -> AlgaeRecommendation:
@@ -239,7 +279,9 @@ def recommend_for_algae(
         anchor_seq,
         low_toxicity=low_toxicity,
         max_identity=max_identity,
+        max_lysis_risk=max_lysis_risk,
         rank_by=rank_by,
+        collapse_families=collapse_families,
     )
 
     if top_k is not None:
@@ -272,6 +314,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-identity", type=float, default=None, metavar="FRAC",
                    help="drop candidates with >= this identity to the anchor (e.g. 0.6) "
                         "to look beyond near-variants")
+    p.add_argument("--max-lysis", type=float, default=None, metavar="RISK",
+                   help="drop candidates with membrane-lysis risk >= this (e.g. 0.5) "
+                        "to exclude AMP-like/lytic scaffolds such as the TP10 family")
+    p.add_argument("--collapse-families", type=float, default=None, metavar="RATIO",
+                   help="collapse near-duplicate scaffolds (e.g. 0.7) to one "
+                        "representative each, for a diverse panel")
     p.add_argument("--no-algae", action="store_true", help="disable the algae-fit axis")
     p.add_argument("--allow-toxic", action="store_true",
                    help="keep high-charge / membrane-lytic candidates")
@@ -289,6 +337,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         low_toxicity=not args.allow_toxic,
         rank_by=args.rank_by,
         max_identity=args.max_identity,
+        max_lysis_risk=args.max_lysis,
+        collapse_families=args.collapse_families,
     )
     df = rec.to_dataframe()
     out = Path(args.out)

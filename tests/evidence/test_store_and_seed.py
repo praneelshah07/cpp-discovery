@@ -70,8 +70,9 @@ def test_seed_integrity() -> None:
     assert len(led) >= 15
     # every entry carries a resolvable citation (verified web pulls only)
     assert all(e.citation.resolvable() for e in led)
-    # the context reversal is present: R9 is a mammalian success and an algae non-success
+    # the context reversal is present: R9 is a mammalian success but an algae failure
+    # (Kang 2017: R9 penetrates but does not deliver protein into Chlamydomonas)
     r9 = [e for e in led if e.peptide_name == "R9"]
     by_org = {e.organism: e.outcome for e in r9}
     assert by_org.get("mammalian") == "success"
-    assert by_org.get("algae") == "partial"
+    assert by_org.get("algae") == "fail"

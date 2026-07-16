@@ -45,6 +45,18 @@ candidates — with a smooth risk function:
 membrane-lytic bump. It **down-weights** rather than excludes, and is exposed as
 `charge_risk`. This is a heuristic prior, **not** a hemolysis prediction.
 
+### Membrane-lysis risk (`membrane_lysis_risk`)
+
+Gross amphipathicity cannot tell a gentle translocator (pVEC) from a
+membrane-lytic amphipath (TP10/MAP) — their helical hydrophobic moments are
+nearly equal. The real discriminator is **net hydrophobicity (GRAVY) plus lack
+of polar buffering**: pVEC is net *hydrophilic* (GRAVY < 0) and buffered, while
+lytic AMP-like peptides are net *hydrophobic* (GRAVY ≈ +1) with almost no polar
+content. `membrane_lysis_risk` combines GRAVY, helical µH, and (inverse) polar
+fraction into a 0–1 risk that scores pVEC/pVEC-R6A ≈ 0.25 and TP10/MAP ≈ 0.85.
+Exposed as the `lysis_risk` axis; the pipeline discounts algae-fit by it and can
+filter on it. A prior, **not** a measured hemolysis value.
+
 ## Context fitness — the algae-delivery axis (`context.py`)
 
 `AlgaeFitScorer` is the first place the platform's *empirical* knowledge feeds

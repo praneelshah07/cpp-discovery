@@ -34,7 +34,7 @@ from ..similarity.metrics import SequenceIdentity, SmithWaterman
 from .context import AlgaeFitScorer
 from .physchem import BlockSimilarityIndex
 from .positional import CriticalPositionProfile, critical_position_score
-from .safety import assess_safety
+from .safety import assess_safety, membrane_lysis_risk
 
 
 def evidence_level(candidate: ScreenCandidate) -> str:
@@ -71,6 +71,7 @@ class EvidenceProfile:
     toxicity_flag: str
     lytic_risk: bool
     charge_risk: float
+    lysis_risk: float  # heuristic membrane-lysis (AMP-like) risk, 0=gentle
     safety_factor: float
     # evidence quality
     evidence: str
@@ -99,6 +100,7 @@ class EvidenceProfile:
             "ad_confidence": self.ad_confidence,
             "net_charge": self.net_charge,
             "charge_risk": round(self.charge_risk, 2),
+            "lysis_risk": round(self.lysis_risk, 2),
             "toxicity_flag": self.toxicity_flag,
             "lytic_risk": self.lytic_risk,
             "evidence": self.evidence,
@@ -195,6 +197,7 @@ class EvidenceScorer:
             cpp = None if cpp_probs is None else float(cpp_probs[i])
             blocks = {b.name: b.similarity for b in p.blocks}
             safety = assess_safety(cand.net_charge, cand.lytic_risk)
+            lysis = membrane_lysis_risk(cand.sequence)
             crit = (
                 None if crit_profile is None
                 else critical_position_score(crit_profile, cand.sequence)
@@ -223,6 +226,7 @@ class EvidenceScorer:
                     toxicity_flag=cand.toxicity_flag,
                     lytic_risk=cand.lytic_risk,
                     charge_risk=safety.charge_risk,
+                    lysis_risk=lysis,
                     safety_factor=safety.safety_factor,
                     evidence=evidence_level(cand),
                     shortlist_score=_shortlist(

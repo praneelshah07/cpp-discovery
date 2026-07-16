@@ -139,6 +139,7 @@ def _table(profiles: list[Any]) -> pd.DataFrame:
         if p.critical_position is not None:
             row["Key-residue match"] = _pct(p.critical_position)
         row["Net charge"] = p.net_charge
+        row["Lysis risk"] = round(p.lysis_risk, 2)
         row["Toxicity risk"] = _toxicity_label(p)
         row["Confidence"] = p.ad_confidence
         row["Evidence"] = _evidence_label(p)
@@ -204,6 +205,8 @@ algae_mode = st.sidebar.checkbox(
 )
 rank_by: RankBy = "blend"
 max_identity: float | None = None
+max_lysis_risk: float | None = None
+collapse_families: float | None = None
 if algae_mode:
     if st.sidebar.checkbox(
         "Rank by algae-fit (most beneficial, not just similar)",
@@ -220,6 +223,21 @@ if algae_mode:
         "identity), so you see genuinely different scaffolds.",
     ):
         max_identity = 0.6
+    if st.sidebar.checkbox(
+        "Exclude membrane-lytic (AMP-like) candidates",
+        value=True,
+        help="Drop net-hydrophobic, poorly-buffered amphipaths (the TP10/MAP "
+        "family) that perturb membranes rather than translocate gently. This is "
+        "why pVEC works and lytic look-alikes don't.",
+    ):
+        max_lysis_risk = 0.6
+    if st.sidebar.checkbox(
+        "Collapse near-duplicate scaffolds",
+        value=False,
+        help="Keep one representative per near-identical family so the panel is "
+        "diverse (e.g. not eight TP10 variants).",
+    ):
+        collapse_families = 0.7
 
 with st.sidebar.expander("Advanced"):
     scaffold = st.checkbox("Scaffold mode (score key residues W6/T14 vs ClWOX)", value=False)
@@ -264,7 +282,13 @@ if algae_mode:
     )
 
 filtered = filter_and_rank(
-    profiles, anchor, low_toxicity=low_tox, max_identity=max_identity, rank_by=rank_by
+    profiles,
+    anchor,
+    low_toxicity=low_tox,
+    max_identity=max_identity,
+    max_lysis_risk=max_lysis_risk,
+    rank_by=rank_by,
+    collapse_families=collapse_families,
 )
 if exclude_homeodomain:
     filtered = [p for p in filtered if "WFQN" not in p.sequence]
@@ -294,6 +318,10 @@ with st.expander("ℹ️ What do these columns mean?"):
         "shown to matter in ClWOX (W6, T14).\n"
         "- **Net charge** — positive minus negative residues. Very high charge tends to be "
         "toxic to algae.\n"
+        "- **Lysis risk** — heuristic membrane-lysis (AMP-like) risk from net "
+        "hydrophobicity + amphipathicity + low polar buffering. High = perturbs "
+        "membranes (TP10/MAP-like) rather than entering gently; pVEC is low. A "
+        "prior, not a measured hemolysis value.\n"
         "- **Toxicity risk** — a heuristic flag (Low / Moderate / High, or membrane-lytic) "
         "from charge and uptake mechanism. Not a measured value.\n"
         "- **Confidence** — how similar this peptide is to ones the tool has seen; 'low' "

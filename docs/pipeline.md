@@ -21,8 +21,14 @@ near zero; all logic changes land here and both front-ends inherit them.
   different scaffolds surface instead of near-duplicates.
 - **"which are more beneficial to algae, not just similar-looking."**
   `rank_by="algae_fit"` orders by the empirical algae-winner profile (from the
-  ledger SAR) rather than resemblance to the anchor. It falls back to `"blend"`
-  when the ledger has no informative algae signal (honest, not silent).
+  ledger SAR) rather than resemblance to the anchor, **discounted by membrane-
+  lysis risk** so amphipathic-but-lytic scaffolds (the TP10/MAP family) don't win
+  on amphipathicity alone. Falls back to `"blend"` when the ledger has no
+  informative algae signal (honest, not silent).
+- **"make the top hits proper, not eight copies of one lytic scaffold."**
+  `max_lysis_risk` drops AMP-like candidates; `collapse_families` keeps one
+  representative per near-duplicate scaffold (fast difflib similarity) for a
+  diverse panel.
 
 ## Anchor policy
 
@@ -34,13 +40,15 @@ results.
 ## CLI
 
 ```bash
-# genuinely different scaffolds, ranked by the algae profile, with a report
+# gentle, diverse, genuinely different scaffolds ranked by the algae profile
 python -m cpp_ai.pipeline --anchor pVEC --rank-by algae_fit --max-identity 0.6 \
+    --max-lysis 0.6 --collapse-families 0.7 \
     --top 25 --out algae_candidates.csv --report algae_report.md
 ```
 
 Flags: `--anchor` (preset or raw sequence), `--top`, `--rank-by {blend,algae_fit}`,
-`--max-identity FRAC`, `--no-algae`, `--allow-toxic`, `--out`, `--report`.
+`--max-identity FRAC`, `--max-lysis RISK`, `--collapse-families RATIO`,
+`--no-algae`, `--allow-toxic`, `--out`, `--report`.
 
 Outputs a ranked CSV and (optionally) a short, caveat-carrying markdown report.
 

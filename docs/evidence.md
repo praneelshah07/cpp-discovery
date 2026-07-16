@@ -14,8 +14,16 @@ data:
 
 | Peptide | Mammalian | Algae (Chlamydomonas) |
 |---|---|---|
-| **R9** | success — ~20× TAT uptake (Futaki 2001) | **partial** — weaker than pVEC for protein delivery (Kang 2017) |
-| **pVEC** | partial — below TAT/transportan for protein cargo (Säälik 2004) | **success** — top translocator; delivers 6–150 kDa protein (Suresh 2013, Kang 2017) |
+| **R9** | success — ~20× TAT uptake (Futaki 2001) | **fail** — penetrates but does not deliver protein (Kang 2017) |
+| **pVEC** | partial — below TAT/transportan for protein cargo (Säälik 2004) | **success** — the *only* CPP that delivered protein; 6–150 kDa (Suresh 2013, Kang 2017) |
+
+Kang 2017 (read from the PDF) is emphatic: for **protein** cargo in
+*Chlamydomonas*, **only pVEC delivered** — R9, Transportan, TAT and Penetratin
+all failed, even though they translocate. Those are recorded as algae-protein
+**negatives**, which is what lets the SAR/lysis logic separate a gentle
+translocator from a membrane-lytic amphipath. The tested pVEC was
+C-terminally **amidated** and is dose-toxic (~45% viability at 40 µM) — a
+reminder that the naked sequence ≠ the material actually tested.
 
 A generic "add arginine" prior is *right* for mammalian cells and *wrong* for the
 lab's algae goal. Only context-stratified evidence exposes that.

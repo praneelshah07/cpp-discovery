@@ -58,11 +58,10 @@ def test_algae_mode_populates_fit_axis() -> None:
 def test_rank_by_algae_fit_orders_by_algae_profile() -> None:
     # keep toxic candidates so R9 (charge +9) is present to test its low rank
     rec = _rec(algae_mode=True, rank_by="algae_fit", low_toxicity=False)
-    fits = [p.algae_fit for p in rec.profiles]
-    assert fits == sorted(fits, reverse=True)
-    # pure-cationic R9 should not be near the top under the algae profile
+    # a gentle, high-fit amphipath (pVEC-R6A) should outrank pure-cationic R9
+    # under the lysis-discounted algae profile
     names = [p.name for p in rec.profiles]
-    assert names.index("R9") > names.index("TP10-like")
+    assert names.index("pVEC-var2") < names.index("R9")
 
 
 def test_rank_by_algae_fit_falls_back_without_evidence() -> None:
@@ -91,6 +90,36 @@ def test_dataframe_and_markdown_render() -> None:
     md = rec.to_markdown()
     assert "Algae-delivery CPP candidates" in md
     assert "not** algae-uptake predictions" in md  # the honesty caveat survives
+
+
+def test_max_lysis_filter_drops_lytic_amphipaths() -> None:
+    kept = {p.name for p in _rec(max_lysis_risk=0.6, low_toxicity=False).profiles}
+    # MAP is a lytic amphipath and should be excluded by the lysis filter
+    assert "MAP" not in kept
+    # pVEC-R6A (gentle) survives
+    assert "pVEC-var2" in kept
+
+
+def test_lysis_discount_demotes_lytic_under_algae_fit() -> None:
+    # MAP has high algae_fit but high lysis; the discount should rank it below a
+    # gentler amphipath. Compare its rank to TP10-like (gentler here).
+    rec = _rec(algae_mode=True, rank_by="algae_fit", low_toxicity=False)
+    names = [p.name for p in rec.profiles]
+    assert names.index("TP10-like") < names.index("MAP")
+
+
+def test_collapse_families_reduces_near_duplicates() -> None:
+    full = _rec(low_toxicity=False).profiles
+    collapsed = _rec(low_toxicity=False, collapse_families=0.7).profiles
+    # the two near-identical pVEC variants collapse to one representative
+    assert len(collapsed) < len(full)
+    pvec_like = [p for p in collapsed if p.name.startswith("pVEC-var")]
+    assert len(pvec_like) <= 1
+
+
+def test_lysis_risk_present_on_profiles() -> None:
+    for p in _rec().profiles:
+        assert 0.0 <= p.lysis_risk <= 1.0
 
 
 def test_filter_and_rank_matches_pipeline_policy() -> None:

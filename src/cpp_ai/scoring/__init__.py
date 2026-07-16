@@ -17,7 +17,7 @@ from .positional import (
     critical_position_score,
     substitution_similarity,
 )
-from .safety import SafetyAssessment, assess_safety, charge_risk
+from .safety import SafetyAssessment, assess_safety, charge_risk, membrane_lysis_risk
 
 __all__ = [
     "BIOLOGICAL_BLOCKS",
@@ -33,6 +33,7 @@ __all__ = [
     "FitTerm",
     "FitContribution",
     "charge_risk",
+    "membrane_lysis_risk",
     "assess_safety",
     "SafetyAssessment",
     "CriticalPositionProfile",
