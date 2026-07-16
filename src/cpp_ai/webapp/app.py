@@ -172,9 +172,9 @@ anchor = st.sidebar.text_input("Sequence (one-letter)", value=_PRESETS[choice]).
 n_show = st.sidebar.slider("How many candidates", 5, 40, 15)
 st.sidebar.metric("Cloneable CPPs screened", len(lib))
 st.sidebar.caption(
-    "Ranked by **usable delivery** = algae-fit × (1 − lysis)² × cloneability. "
-    "Membrane-lytic peptides are kept but flagged ⚠. Near-identical scaffolds are "
-    "grouped — expand any candidate to see its variants."
+    "Ranked by **usable delivery** = surface binding × insertion fit × "
+    "(1 − lysis)² × cloneability. Membrane-lytic peptides are kept but flagged ⚠. "
+    "Near-identical scaffolds are grouped — expand any candidate to see its variants."
 )
 
 if not anchor:
@@ -211,7 +211,8 @@ def _lean_table(family_groups: list[Any]) -> pd.DataFrame:
             "Peptide": p.name,
             "Family": peptide_family(p.sequence),
             "Usable delivery": _pct(usable_delivery(p)) if p.algae_fit is not None else None,
-            "Algae suitability": _pct(p.algae_fit),
+            "Surface binding": _pct(p.surface_adsorption),
+            "Insertion fit": _pct(p.algae_fit),
             "Lysis": ("⚠ " if p.lysis_risk >= _LYSIS_WARN else "") + f"{p.lysis_risk:.2f}",
             "Charge": p.net_charge,
             "Cloneable": "✓" if p.genetically_encodable else "—",
@@ -245,11 +246,11 @@ if sel != "—":
         )
     c1, c2, c3 = st.columns(3)
     c1.metric("Usable delivery", _pct(usable_delivery(p)) if p.algae_fit is not None else "—")
-    c1.metric("Algae suitability", _pct(p.algae_fit))
+    c1.metric("Surface binding", _pct(p.surface_adsorption))
+    c2.metric("Insertion fit", _pct(p.algae_fit))
     c2.metric("Lysis risk", f"{p.lysis_risk:.2f}")
-    c2.metric("Net charge", f"{p.net_charge:+d}")
+    c3.metric("Net charge", f"{p.net_charge:+d}")
     c3.metric("Fusion confidence", f"{p.fusion_confidence:.2f}")
-    c3.metric("CPP likelihood", _pct(p.cpp_probability) if p.cpp_probability is not None else "—")
     st.markdown(
         f"`{p.sequence}` · **{peptide_family(p.sequence)}** · length {len(p.sequence)} · "
         f"{'cloneable (mCherry-fusion ready)' if p.genetically_encodable else 'tested form: ' + p.modification}"
@@ -265,14 +266,18 @@ filtered = reps  # used by the download section below
 
 with st.expander("ℹ️ How the ranking works"):
     st.markdown(
-        "Candidates are ordered by **usable delivery = algae suitability × "
-        "(1 − lysis risk)² × fusion confidence** — so a peptide has to be a good "
-        "algae-profile match, gentle on membranes, *and* cloneable to rank highly.\n\n"
+        "Candidates are ordered by **usable delivery = surface binding × insertion "
+        "fit × (1 − lysis risk)² × fusion confidence** — three separable biological "
+        "steps plus cloneability, so a peptide has to clear *all* of them to rank high.\n\n"
         "- **Usable delivery** — the headline 0–100 ranking score above. A design "
         "heuristic, **not** a delivery probability.\n"
-        "- **Algae suitability** — match to the physicochemical profile of CPPs that "
-        "actually worked in microalgae (amphipathic/hydrophobic, moderate charge, low "
-        "aromaticity), learned from the curated evidence ledger.\n"
+        "- **Surface binding** — electrostatic attraction to the *negatively charged* "
+        "algal surface (the first step: no adsorption → no uptake). Peaks at net "
+        "charge **+4 to +6**; neutral/negative peptides score low and appear only as "
+        "exploratory. This is why the algae-proven anchors are all cationic.\n"
+        "- **Insertion fit** — match to the membrane-*insertion* profile of CPPs that "
+        "worked in microalgae (amphipathic/hydrophobic/shape), learned from the "
+        "evidence ledger. Charge is handled by Surface binding, not here.\n"
         "- **Lysis** — heuristic membrane-lysis (AMP-like) risk. ⚠ (≥0.50) = perturbs "
         "membranes (TP10/MAP-like) rather than entering gently; kept but flagged for "
         "toxicity testing. A prior, not a measured hemolysis value.\n"

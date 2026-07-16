@@ -123,6 +123,14 @@ def explain_profile(
         r.append(Reason(
             f"High physicochemical similarity to anchor "
             f"({profile.physchem_percentile * 100:.0f}th pct)", True))
+    if profile.surface_adsorption >= 0.6:
+        r.append(Reason(
+            f"Charge {profile.net_charge:+d} favors adsorption to the negative "
+            f"algal surface (near the +4..+6 sweet spot)", True))
+    elif profile.surface_adsorption <= 0.2:
+        r.append(Reason(
+            f"Charge {profile.net_charge:+d} gives little electrostatic pull on the "
+            f"negative algal surface — poor adsorption (exploratory)", False))
     if profile.algae_fit is not None:
         if profile.algae_fit >= 0.6:
             extra = ""
@@ -133,9 +141,9 @@ def explain_profile(
                 )
                 if top and top[0].contribution > 0:
                     extra = f" (esp. {_NICE_DESC.get(top[0].descriptor, top[0].descriptor)})"
-            r.append(Reason(f"Matches the algae-winner profile{extra}", True))
+            r.append(Reason(f"Good membrane-insertion profile{extra}", True))
         elif profile.algae_fit < 0.4:
-            r.append(Reason("Weak match to the algae-winner profile", False))
+            r.append(Reason("Weak membrane-insertion profile", False))
     if profile.lysis_risk < 0.3:
         r.append(Reason("Low predicted membrane-lysis (gentle)", True))
     elif profile.lysis_risk > 0.6:
@@ -248,7 +256,8 @@ class AlgaeRecommendation:
             }
             if p.algae_fit is not None:
                 row["usable_delivery"] = round(usable_delivery(p), 3)
-                row["algae_suitability"] = round(p.algae_fit, 3)
+                row["surface_binding"] = round(p.surface_adsorption, 2)
+                row["insertion_fit"] = round(p.algae_fit, 3)
                 row["fusion_confidence"] = round(p.fusion_confidence, 2)
             row.update(
                 {
@@ -340,17 +349,27 @@ def _load_classifier() -> Any:
 
 
 def usable_delivery(p: EvidenceProfile) -> float:
-    """Usable algae-delivery score: ``algae_fit × (1 − lysis)² × fusion_confidence``.
+    """Usable algae-delivery score, as a product of separable biological steps:
 
-    The **squared** lysis term (per external review) penalizes membrane-lytic
-    peptides aggressively — melittin/transportan should not sit near a balanced
-    peptide just because the linear lysis discount was gentle. ``fusion_confidence``
-    folds modification-awareness in: a peptide whose function may depend on a
-    non-encodable conjugate is discounted, so the naked cloneable candidates win.
-    Returns ``algae_fit`` unchanged when no algae signal is available (fit None)."""
+    ``surface_adsorption × insertion_fit × (1 − lysis)² × fusion_confidence``
+
+    - **surface_adsorption** — electrostatic attraction to the negative algal
+      surface (no adsorption → no uptake); peaks ~+4..+6, floors neutral peptides.
+    - **insertion_fit** (``algae_fit``) — the SAR membrane-insertion profile
+      (amphipathicity/hydrophobicity/shape), with charge removed so it doesn't
+      fight the explicit surface term.
+    - **(1 − lysis)²** — squared membrane-lysis penalty (per review).
+    - **fusion_confidence** — cloneability of the tested form.
+
+    Returns 0 when no algae signal is available (fit None)."""
     if p.algae_fit is None:
         return 0.0
-    return p.algae_fit * (1.0 - p.lysis_risk) ** 2 * p.fusion_confidence
+    return (
+        p.surface_adsorption
+        * p.algae_fit
+        * (1.0 - p.lysis_risk) ** 2
+        * p.fusion_confidence
+    )
 
 
 def _algae_priority(p: EvidenceProfile) -> float:

@@ -18,6 +18,7 @@ from .positional import (
     substitution_similarity,
 )
 from .safety import SafetyAssessment, assess_safety, charge_risk, membrane_lysis_risk
+from .surface import charge_adsorption, surface_adsorption
 
 __all__ = [
     "BIOLOGICAL_BLOCKS",
@@ -34,6 +35,8 @@ __all__ = [
     "FitContribution",
     "charge_risk",
     "membrane_lysis_risk",
+    "surface_adsorption",
+    "charge_adsorption",
     "assess_safety",
     "SafetyAssessment",
     "CriticalPositionProfile",

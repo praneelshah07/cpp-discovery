@@ -77,15 +77,27 @@ pVEC-like / Polyarginine / …) so a panel reveals as a few mechanisms, not ten.
 
 ## Usable-delivery score (the default algae ranking)
 
-`usable_delivery(p) = algae_fit × (1 − lysis_risk)² × fusion_confidence`.
+A product of **three separable biological steps** plus cloneability, per external
+review:
 
-- The **squared** lysis term (per external review) penalizes membrane-lytic
-  peptides aggressively — transportan drops from ~29 to ~8 — so a lytic peptide
-  never sits next to a balanced one on amphipathicity alone.
-- `fusion_confidence` folds modification-awareness into the *logic* (no toggle):
-  cloneable 1.0 · terminal cap 0.9 · tracer label 0.8 · functional conjugate
-  (lipid/nanoparticle) 0.4 · non-canonical residue 0.15. A peptide whose function
-  may depend on a non-encodable conjugate is discounted automatically.
+`usable_delivery = surface_adsorption × insertion_fit × (1 − lysis)² × fusion_confidence`
+
+- **surface_adsorption** (`scoring.surface`) — electrostatic attraction to the
+  *negatively charged* algal surface (the first step: no adsorption → no uptake).
+  A bell in net charge peaking **+4..+6**, with a small floor so neutral/negative
+  peptides remain *exploratory* rather than discarded. Modeled explicitly because
+  the ledger SAR's charge signal is confounded (its losers R9/TAT were extreme
+  polycations, so it wrongly learned "less charge is better" and over-rewarded
+  neutral peptides). Effect: the top of the list moved from a net-neutral peptide
+  to candidates that all sit at +4..+6, where the algae-proven anchors live.
+- **insertion_fit** (`algae_fit`) — the SAR membrane-insertion profile
+  (amphipathicity/hydrophobicity/shape). Charge descriptors are **removed** from
+  this scorer (see `scoring.context._CHARGE_DESCRIPTORS`) so it does not fight the
+  explicit surface term.
+- **(1 − lysis)²** — squared membrane-lysis penalty; transportan drops ~29 → ~8.
+- **fusion_confidence** — modification-awareness folded into the logic (no toggle):
+  cloneable 1.0 · terminal cap 0.9 · tracer label 0.8 · functional conjugate 0.4 ·
+  non-canonical residue 0.15.
 - Honest limit: melittin stays mid-pack — its hydrophobic-helix + cationic-tail
   architecture defeats a GRAVY-based lysis proxy, and a `longest_hydrophobic_run`
   penalty backfires (pVEC has a longer run). Proper separation needs a real

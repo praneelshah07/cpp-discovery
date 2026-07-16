@@ -31,10 +31,13 @@ def test_scorer_is_informative_from_seed() -> None:
     assert amph and amph[0].weight > 0
 
 
-def test_pure_cationic_charge_is_penalized() -> None:
+def test_charge_descriptors_excluded_from_insertion_model() -> None:
+    # Charge is modeled explicitly by scoring.surface, not the SAR (whose charge
+    # signal is confounded by extreme-polycation losers). The insertion scorer
+    # must therefore carry no charge terms.
     fit = _fit()
-    cat = [t for t in fit.terms if t.descriptor == "frac_group_cationic"]
-    assert cat and cat[0].weight < 0  # more cationic -> worse in algae
+    charge_terms = {"charge_pH7.4_Lehninger", "frac_group_cationic", "frac_R", "frac_K"}
+    assert not any(t.descriptor in charge_terms for t in fit.terms)
 
 
 def test_known_winners_beat_known_losers() -> None:

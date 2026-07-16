@@ -29,6 +29,15 @@ from typing import Sequence
 
 from ..descriptors import compute_descriptors
 
+# Charge-related SAR descriptors excluded from the insertion model — charge is
+# modeled explicitly by scoring.surface (see from_ledger for the rationale).
+_CHARGE_DESCRIPTORS = frozenset({
+    "charge_pH7.4_Lehninger",
+    "frac_group_cationic",
+    "frac_R",
+    "frac_K",
+})
+
 
 @dataclass(frozen=True)
 class FitTerm:
@@ -96,8 +105,15 @@ class AlgaeFitScorer:
         assert isinstance(ledger, EvidenceLedger)
         report = analyze_context(ledger, context)
 
-        # library standardization stats for every descriptor we might weight
-        used = [c for c in report.contrasts if abs(c.effect) >= min_effect]
+        # Charge is modeled *explicitly* (see scoring.surface): the tiny ledger's
+        # losers (R9/TAT) were extreme polycations, so the SAR spuriously learns
+        # "less charge is better" and over-rewards neutral peptides. Exclude the
+        # charge descriptors here so this scorer captures only membrane *insertion*
+        # (amphipathicity/hydrophobicity/shape); surface_adsorption handles charge.
+        used = [
+            c for c in report.contrasts
+            if abs(c.effect) >= min_effect and c.descriptor not in _CHARGE_DESCRIPTORS
+        ]
         used.sort(key=lambda c: abs(c.effect), reverse=True)
         used = used[:max_terms]
         descriptors = [c.descriptor for c in used]

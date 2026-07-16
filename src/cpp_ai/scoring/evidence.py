@@ -35,6 +35,7 @@ from .context import AlgaeFitScorer
 from .physchem import BlockSimilarityIndex
 from .positional import CriticalPositionProfile, critical_position_score
 from .safety import assess_safety, membrane_lysis_risk
+from .surface import surface_adsorption
 
 
 def evidence_level(candidate: ScreenCandidate) -> str:
@@ -72,6 +73,7 @@ class EvidenceProfile:
     lytic_risk: bool
     charge_risk: float
     lysis_risk: float  # heuristic membrane-lysis (AMP-like) risk, 0=gentle
+    surface_adsorption: float  # electrostatic adsorption to the negative algal surface
     safety_factor: float
     # evidence quality
     evidence: str
@@ -106,6 +108,7 @@ class EvidenceProfile:
             "net_charge": self.net_charge,
             "charge_risk": round(self.charge_risk, 2),
             "lysis_risk": round(self.lysis_risk, 2),
+            "surface_adsorption": round(self.surface_adsorption, 2),
             "modification": self.modification,
             "genetically_encodable": self.genetically_encodable,
             "toxicity_flag": self.toxicity_flag,
@@ -205,6 +208,7 @@ class EvidenceScorer:
             blocks = {b.name: b.similarity for b in p.blocks}
             safety = assess_safety(cand.net_charge, cand.lytic_risk)
             lysis = membrane_lysis_risk(cand.sequence)
+            surface = surface_adsorption(cand.sequence)
             mod = cand.modification
             crit = (
                 None if crit_profile is None
@@ -235,6 +239,7 @@ class EvidenceScorer:
                     lytic_risk=cand.lytic_risk,
                     charge_risk=safety.charge_risk,
                     lysis_risk=lysis,
+                    surface_adsorption=surface,
                     safety_factor=safety.safety_factor,
                     evidence=evidence_level(cand),
                     modification=mod.summary,
