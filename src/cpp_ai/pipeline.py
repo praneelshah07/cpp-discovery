@@ -69,6 +69,147 @@ def resolve_anchor(anchor: str) -> str:
     )
 
 
+# --------------------------------------------------------------------------- #
+# family tag, "why recommended", and hypothesis categories
+# --------------------------------------------------------------------------- #
+# Coarse mechanistic family from sequence — a heuristic label so a panel of ten
+# hits reveals as ~three mechanisms, not ten. Not a phylogeny.
+def peptide_family(sequence: str) -> str:
+    s = sequence.upper()
+    n = len(s) or 1
+    frac_rk = sum(c in "RK" for c in s) / n
+    if "WFQN" in s:
+        return "Homeodomain"
+    if "INLKALAALAKKIL" in s or "GYLLG" in s:
+        return "Transportan"
+    if s.startswith("LLIIL") or "RKQAHAH" in s:
+        return "pVEC-like"
+    if frac_rk > 0.7:
+        return "Polyarginine/cationic"
+    if "YGRKKRR" in s or "RRRQRRR" in s:
+        return "TAT-like"
+    return "Amphipathic/other"
+
+
+# nice display names for the algae-fit descriptors referenced in reasons
+_NICE_DESC = {
+    "hydrophobic_moment_alpha": "amphipathicity",
+    "aliphatic_index": "aliphatic content",
+    "aromaticity": "low aromaticity",
+    "gravy_kyte_doolittle": "hydrophobicity balance",
+    "frac_group_hydrophobic": "hydrophobic fraction",
+    "frac_group_cationic": "moderate charge",
+}
+
+
+@dataclass(frozen=True)
+class Reason:
+    """One human-readable reason a candidate was (or wasn't) recommended."""
+
+    text: str
+    positive: bool
+
+
+def explain_profile(
+    profile: EvidenceProfile, *, fit_scorer: AlgaeFitScorer | None = None
+) -> list[Reason]:
+    """Turn a candidate's scoring axes into plain positive/negative reasons.
+
+    This is the "why was this recommended?" panel — it makes the ranking a
+    transparent, critiqueable argument rather than a black-box number.
+    """
+    r: list[Reason] = []
+    if profile.physchem_percentile >= 0.7:
+        r.append(Reason(
+            f"High physicochemical similarity to anchor "
+            f"({profile.physchem_percentile * 100:.0f}th pct)", True))
+    if profile.algae_fit is not None:
+        if profile.algae_fit >= 0.6:
+            extra = ""
+            if fit_scorer is not None:
+                top = sorted(
+                    fit_scorer.explain(profile.sequence),
+                    key=lambda c: c.contribution, reverse=True,
+                )
+                if top and top[0].contribution > 0:
+                    extra = f" (esp. {_NICE_DESC.get(top[0].descriptor, top[0].descriptor)})"
+            r.append(Reason(f"Matches the algae-winner profile{extra}", True))
+        elif profile.algae_fit < 0.4:
+            r.append(Reason("Weak match to the algae-winner profile", False))
+    if profile.lysis_risk < 0.3:
+        r.append(Reason("Low predicted membrane-lysis (gentle)", True))
+    elif profile.lysis_risk > 0.6:
+        r.append(Reason("Membrane-lytic (AMP-like) risk", False))
+    if profile.cpp_probability is not None and profile.cpp_probability >= 0.8:
+        r.append(Reason(f"High CPP-classifier probability "
+                        f"({profile.cpp_probability * 100:.0f}%)", True))
+    if profile.motif_local >= 0.5:
+        r.append(Reason("Shares a sequence motif with the anchor", True))
+    elif profile.motif_local < 0.2:
+        r.append(Reason("Low motif similarity to the anchor", False))
+    if profile.ad_confidence == "high":
+        r.append(Reason("In the well-characterized region (high confidence)", True))
+    elif profile.ad_confidence == "low":
+        r.append(Reason("Unusual sequence — treat scores cautiously (low confidence)", False))
+    if "experimental" in profile.evidence:
+        r.append(Reason("Experimentally-studied CPP", True))
+    else:
+        r.append(Reason("Computational candidate (no direct evidence)", False))
+    return r
+
+
+@dataclass(frozen=True)
+class Category:
+    """A labelled bucket of candidates representing one testable hypothesis."""
+
+    key: str
+    title: str
+    rationale: str
+    profiles: list[EvidenceProfile]
+
+
+def categorize(
+    profiles: Sequence[EvidenceProfile],
+    anchor_seq: str,
+    *,
+    per_bucket: int = 3,
+    keys: Sequence[str] | None = None,
+) -> list[Category]:
+    """Partition ranked candidates into distinct hypothesis buckets.
+
+    The point (per the review): give the wet lab *options* — a few genuinely
+    different bets — instead of twenty near-identical peptides. A peptide may
+    appear in more than one bucket; that overlap is itself informative.
+    """
+    pool = list(profiles)
+    cats: list[Category] = []
+
+    def add(key: str, title: str, rationale: str, ordered: list[EvidenceProfile]) -> None:
+        cats.append(Category(key, title, rationale, ordered[:per_bucket]))
+
+    add("closest", "Closest to the anchor", "Highest physicochemical similarity",
+        sorted(pool, key=lambda p: p.physchem, reverse=True))
+    add("novel", "Most novel scaffold", "Least sequence-similar to the anchor",
+        sorted(pool, key=lambda p: SequenceMatcher(None, p.sequence, anchor_seq).ratio()))
+    add("gentle", "Gentlest (lowest lysis risk)", "Least membrane-perturbing",
+        sorted(pool, key=lambda p: p.lysis_risk))
+    if any(p.algae_fit is not None for p in pool):
+        add("algae", "Strongest algae profile",
+            "Best algae-winner descriptors, discounted by lysis risk",
+            sorted(pool, key=lambda p: (p.algae_fit or 0.0) * (1.0 - p.lysis_risk), reverse=True))
+    if any(p.cpp_probability is not None for p in pool):
+        add("cpp", "Highest CPP confidence", "Top CPP-classifier probability",
+            sorted(pool, key=lambda p: p.cpp_probability or 0.0, reverse=True))
+    else:
+        add("confident", "Highest applicability confidence",
+            "In the well-characterized region of known CPPs",
+            sorted(pool, key=lambda p: (p.ad_confidence == "high", p.physchem), reverse=True))
+
+    if keys is not None:
+        cats = [c for c in cats if c.key in keys]
+    return cats
+
+
 @dataclass(frozen=True)
 class AlgaeRecommendation:
     """Ranked, filtered recommendation output shared by all front-ends."""
@@ -90,17 +231,18 @@ class AlgaeRecommendation:
             row: dict[str, object] = {
                 "peptide": p.name,
                 "sequence": p.sequence,
+                "family": peptide_family(p.sequence),
                 "length": len(p.sequence),
                 "net_charge": p.net_charge,
             }
             if p.algae_fit is not None:
-                row["algae_fit"] = round(p.algae_fit, 3)
+                row["algae_suitability"] = round(p.algae_fit, 3)
             row.update(
                 {
                     "physchem_similarity": round(p.physchem, 3),
                     "shared_motif": round(p.motif_local, 3),
                     "sequence_identity": round(p.global_identity, 3),
-                    "overall_match": round(p.shortlist_score, 3),
+                    "composite_score": round(p.shortlist_score, 3),
                 }
             )
             if p.cpp_probability is not None:
@@ -144,6 +286,33 @@ class AlgaeRecommendation:
                 f"{p.net_charge:+d} | {af} | {p.lysis_risk:.2f} | {p.physchem:.2f} | "
                 f"{p.motif_local:.2f} | {p.global_identity:.2f} | {p.toxicity_flag} |"
             )
+        return "\n".join(lines) + "\n"
+
+    def to_markdown_categorized(
+        self, *, per_bucket: int = 3, keys: Sequence[str] | None = None
+    ) -> str:
+        """Report as distinct hypothesis buckets, each with reasons — options, not a list."""
+        cats = categorize(self.profiles, self.anchor, per_bucket=per_bucket, keys=keys)
+        lines = [
+            f"# Algae-delivery hypotheses (anchor: {self.anchor})",
+            "",
+            "> Distinct bets for the wet lab, not one ranked list. Computational "
+            "hypotheses for testing, **not** algae-uptake predictions.",
+            "",
+        ]
+        for c in cats:
+            lines += [f"## {c.title}", f"_{c.rationale}_", ""]
+            for p in c.profiles:
+                af = f", algae-suit {p.algae_fit:.2f}" if p.algae_fit is not None else ""
+                lines.append(
+                    f"- **{p.name}** `{p.sequence}` "
+                    f"({peptide_family(p.sequence)}, {p.net_charge:+d}, "
+                    f"lysis {p.lysis_risk:.2f}{af})"
+                )
+                reasons = explain_profile(p, fit_scorer=self.fit_scorer)
+                for rsn in reasons:
+                    lines.append(f"    - {'✓' if rsn.positive else '✕'} {rsn.text}")
+            lines.append("")
         return "\n".join(lines) + "\n"
 
 
@@ -325,6 +494,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="keep high-charge / membrane-lytic candidates")
     p.add_argument("--out", default="algae_candidates.csv", help="CSV output path")
     p.add_argument("--report", default=None, help="optional markdown report path")
+    p.add_argument("--categorize", action="store_true",
+                   help="write the report as distinct hypothesis buckets (options, not a list)")
     return p
 
 
@@ -350,8 +521,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if args.report:
         rp = Path(args.report)
-        rp.write_text(rec.to_markdown(top_k=args.top), encoding="utf-8")
-        print(f"Wrote report -> {rp}")
+        md = rec.to_markdown_categorized() if args.categorize else rec.to_markdown(top_k=args.top)
+        rp.write_text(md, encoding="utf-8")
+        print(f"Wrote {'categorized ' if args.categorize else ''}report -> {rp}")
     if rec.profiles:
         top = rec.profiles[0]
         af = f", algae_fit={top.algae_fit:.2f}" if top.algae_fit is not None else ""

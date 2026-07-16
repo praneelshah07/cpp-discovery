@@ -7,7 +7,10 @@ import pytest
 from cpp_ai.evidence.seed import build_seed_ledger
 from cpp_ai.pipeline import (
     ANCHOR_PRESETS,
+    categorize,
+    explain_profile,
     filter_and_rank,
+    peptide_family,
     recommend_for_algae,
     resolve_anchor,
 )
@@ -86,7 +89,7 @@ def test_top_k_truncates() -> None:
 def test_dataframe_and_markdown_render() -> None:
     rec = _rec(top_k=5, algae_mode=True, rank_by="algae_fit", low_toxicity=False)
     df = rec.to_dataframe()
-    assert len(df) == 5 and "algae_fit" in df.columns
+    assert len(df) == 5 and "algae_suitability" in df.columns
     md = rec.to_markdown()
     assert "Algae-delivery CPP candidates" in md
     assert "not** algae-uptake predictions" in md  # the honesty caveat survives
@@ -120,6 +123,60 @@ def test_collapse_families_reduces_near_duplicates() -> None:
 def test_lysis_risk_present_on_profiles() -> None:
     for p in _rec().profiles:
         assert 0.0 <= p.lysis_risk <= 1.0
+
+
+def test_peptide_family_tags() -> None:
+    assert peptide_family("RQIKIWFQNRRMKWKK") == "Homeodomain"  # WFQN motif
+    assert peptide_family("AGYLLGKINLKALAALAKKIL") == "Transportan"
+    assert peptide_family("LLIILRRRIRKQAHAHSK") == "pVEC-like"
+    assert peptide_family("RRRRRRRRR") == "Polyarginine/cationic"
+
+
+def test_explain_profile_has_reasons() -> None:
+    rec = _rec(algae_mode=True, top_k=None)
+    pvec_r6a = next(p for p in rec.profiles if p.name == "pVEC-var2")
+    reasons = explain_profile(pvec_r6a, fit_scorer=rec.fit_scorer)
+    assert reasons
+    assert any(r.positive for r in reasons)  # a gentle amphipath has positives
+    # a lytic peptide should carry a negative membrane-lysis reason
+    rec2 = _rec(algae_mode=True, low_toxicity=False, top_k=None)
+    map_p = next((p for p in rec2.profiles if p.name == "MAP"), None)
+    if map_p is not None:
+        texts = [r.text for r in explain_profile(map_p) if not r.positive]
+        assert any("lyt" in t.lower() for t in texts)
+
+
+def test_categorize_returns_distinct_buckets() -> None:
+    rec = _rec(algae_mode=True, low_toxicity=False, top_k=None)
+    cats = categorize(rec.profiles, _PVEC, per_bucket=3)
+    keys = {c.key for c in cats}
+    assert {"closest", "novel", "gentle", "algae"} <= keys
+    for c in cats:
+        assert len(c.profiles) <= 3
+    # the "closest" bucket should be more anchor-similar than the "novel" bucket
+    closest = next(c for c in cats if c.key == "closest")
+    novel = next(c for c in cats if c.key == "novel")
+    assert closest.profiles[0].physchem >= novel.profiles[0].physchem
+
+
+def test_categorize_key_filter() -> None:
+    rec = _rec(algae_mode=True, top_k=None)
+    cats = categorize(rec.profiles, _PVEC, keys=["gentle"])
+    assert [c.key for c in cats] == ["gentle"]
+
+
+def test_categorized_markdown_renders() -> None:
+    rec = _rec(algae_mode=True, low_toxicity=False, top_k=None)
+    md = rec.to_markdown_categorized(per_bucket=2)
+    assert "Algae-delivery hypotheses" in md
+    assert "Gentlest" in md and "✓" in md  # buckets + reasons present
+
+
+def test_dataframe_uses_renamed_columns() -> None:
+    df = _rec(algae_mode=True, top_k=5).to_dataframe()
+    assert "composite_score" in df.columns and "algae_suitability" in df.columns
+    assert "family" in df.columns
+    assert "overall_match" not in df.columns  # old name gone
 
 
 def test_filter_and_rank_matches_pipeline_policy() -> None:

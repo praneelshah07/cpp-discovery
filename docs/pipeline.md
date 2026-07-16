@@ -52,13 +52,45 @@ Flags: `--anchor` (preset or raw sequence), `--top`, `--rank-by {blend,algae_fit
 
 Outputs a ranked CSV and (optionally) a short, caveat-carrying markdown report.
 
+## Options, not a list — categorized hypotheses
+
+Per review, a flat top-20 is mostly near-duplicates. `categorize(profiles,
+anchor)` partitions the ranked pool into distinct **testable bets**, a few
+peptides each: *Closest to the anchor · Most novel scaffold · Gentlest (lowest
+lysis) · Strongest algae profile · Highest CPP confidence*. A peptide may appear
+in more than one bucket — that overlap is informative. `--categorize` (CLI) and
+the app's "Group into hypotheses" toggle render them; the app lets you pick which
+buckets to show.
+
+## Why was this recommended?
+
+`explain_profile(profile, fit_scorer=...)` turns the scoring axes into plain
+✓/✕ reasons ("Matches the algae-winner profile (esp. amphipathicity)", "Low
+predicted membrane-lysis", "Computational candidate — no direct evidence"),
+making each recommendation a transparent, critiqueable argument instead of a
+number. Shown inline in the categorized view and via the app's
+"Why was a peptide recommended?" picker.
+
+`peptide_family(seq)` is a coarse mechanistic tag (Homeodomain / Transportan /
+pVEC-like / Polyarginine / …) so a panel reveals as a few mechanisms, not ten.
+
+## Naming (honest labels)
+
+- **Algae suitability** (was "algae-delivery fit") — a design heuristic, not a
+  delivery probability.
+- **Composite score** (was "overall match") — a transparent convenience blend,
+  not a probability. CSV columns: `algae_suitability`, `composite_score`.
+
 ## Shape
 
 - `recommend_for_algae(...) -> AlgaeRecommendation` — the full path (load → score
-  → filter → rank). `AlgaeRecommendation.to_dataframe()` / `.to_markdown()`.
+  → filter → rank). `.to_dataframe()` / `.to_markdown()` /
+  `.to_markdown_categorized()`.
 - `filter_and_rank(profiles, anchor, ...)` — the shared filter+rank **policy**,
   factored out so the app can reuse its own cached `EvidenceScorer` (the
   expensive step) while still sharing the exact ranking policy.
+- `categorize`, `explain_profile`, `peptide_family` — presentation logic shared
+  by both front-ends.
 
 ## Honesty
 

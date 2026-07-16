@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cpp-ai"
-version = "0.0.4"
+version = "0.0.5"
 description = "Research-grade platform for computational discovery and optimization of Cell Penetrating Peptides (CPPs)."
 readme = "README.md"
 requires-python = ">=3.10"

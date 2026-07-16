@@ -35,7 +35,13 @@ from cpp_ai.scoring import (  # noqa: E402
     CriticalPositionProfile,
     EvidenceScorer,
 )
-from cpp_ai.pipeline import RankBy, filter_and_rank  # noqa: E402
+from cpp_ai.pipeline import (  # noqa: E402
+    RankBy,
+    categorize,
+    explain_profile,
+    filter_and_rank,
+    peptide_family,
+)
 from cpp_ai.screening import load_cppsite3_library  # noqa: E402
 from cpp_ai.screening.candidate import ScreenCandidate  # noqa: E402
 
@@ -127,13 +133,13 @@ def _table(profiles: list[Any]) -> pd.DataFrame:
         row: dict[str, object] = {
             "Peptide": p.name,
             "Sequence": p.sequence,
-            "Overall match": _pct(p.shortlist_score),
+            "Family": peptide_family(p.sequence),
+            "Composite score": _pct(p.shortlist_score),
             "Similarity to anchor": _pct(p.physchem),
             "Shared motif": _pct(p.motif_local),
-            "Sequence identity": _pct(p.global_identity),
         }
         if p.algae_fit is not None:
-            row["Algae-delivery fit"] = _pct(p.algae_fit)
+            row["Algae suitability"] = _pct(p.algae_fit)
         if p.cpp_probability is not None:
             row["CPP likelihood"] = _pct(p.cpp_probability)
         if p.critical_position is not None:
@@ -143,6 +149,7 @@ def _table(profiles: list[Any]) -> pd.DataFrame:
         row["Toxicity risk"] = _toxicity_label(p)
         row["Confidence"] = p.ad_confidence
         row["Evidence"] = _evidence_label(p)
+        row["Sequence identity"] = _pct(p.global_identity)
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -281,7 +288,7 @@ if algae_mode:
         icon="🌱",
     )
 
-filtered = filter_and_rank(
+filtered_full = filter_and_rank(
     profiles,
     anchor,
     low_toxicity=low_tox,
@@ -291,27 +298,71 @@ filtered = filter_and_rank(
     collapse_families=collapse_families,
 )
 if exclude_homeodomain:
-    filtered = [p for p in filtered if "WFQN" not in p.sequence]
-filtered = filtered[:n_show]
+    filtered_full = [p for p in filtered_full if "WFQN" not in p.sequence]
+filtered = filtered_full[:n_show]
 
-st.subheader(f"Top {len(filtered)} recommended peptides")
-st.dataframe(_style(_table(filtered)), use_container_width=True, hide_index=True)
+_fit_for_reasons = _algae_fit() if algae_mode else None
+
+
+def _reasons_md(profile: Any) -> str:
+    reasons = explain_profile(profile, fit_scorer=_fit_for_reasons)
+    return "\n".join(f"- {'✓' if r.positive else '✕'} {r.text}" for r in reasons)
+
+
+group_view = st.checkbox(
+    "Group into hypotheses (a few distinct bets, not one long list)",
+    value=False,
+    help="Instead of a ranked table, split candidates into distinct testable "
+    "hypotheses — closest / most novel / gentlest / best algae profile — so the "
+    "wet lab tests different ideas, not near-duplicates.",
+)
+
+if group_view:
+    all_cats = categorize(filtered_full, anchor, per_bucket=4)
+    titles = [c.title for c in all_cats]
+    chosen = st.multiselect("Which hypotheses to show", titles, default=titles)
+    st.caption("Each bucket is a different bet. A peptide can appear in more than one.")
+    for c in all_cats:
+        if c.title not in chosen:
+            continue
+        with st.expander(f"🧪 {c.title} — {c.rationale}", expanded=True):
+            for p in c.profiles:
+                af = f" · algae-suit **{_pct(p.algae_fit)}**" if p.algae_fit is not None else ""
+                st.markdown(
+                    f"**{p.name}** &nbsp;`{p.sequence}`  \n"
+                    f"{peptide_family(p.sequence)} · charge {p.net_charge:+d} · "
+                    f"lysis {p.lysis_risk:.2f}{af}"
+                )
+                st.markdown(_reasons_md(p))
+else:
+    st.subheader(f"Top {len(filtered)} recommended peptides")
+    st.dataframe(_style(_table(filtered)), use_container_width=True, hide_index=True)
+    if filtered:
+        pick = st.selectbox(
+            "Why was a peptide recommended?", ["—"] + [p.name for p in filtered]
+        )
+        if pick != "—":
+            chosen_p = next(p for p in filtered if p.name == pick)
+            st.markdown(f"**{pick}** `{chosen_p.sequence}` — {peptide_family(chosen_p.sequence)}")
+            st.markdown(_reasons_md(chosen_p))
 
 with st.expander("ℹ️ What do these columns mean?"):
     st.markdown(
-        "- **Overall match** — a convenience 0–100 blend of the columns below (how it's "
-        "ranked). Always read the individual columns, not just this.\n"
+        "- **Family** — a coarse mechanistic tag (heuristic), so ten hits reveal as a "
+        "few mechanisms, not ten independent ones.\n"
+        "- **Composite score** — a convenience 0–100 blend of the columns below (how it's "
+        "ranked). It is not a probability; always read the individual columns.\n"
         "- **Similarity to anchor** — how close its physical/chemical make-up (charge, "
         "hydrophobicity, amphipathicity, shape, composition, arrangement) is to your "
         "anchor. 100 = essentially the same profile.\n"
         "- **Shared motif** — does it contain a similar short stretch of sequence to the "
         "anchor (a shared 'motif')?\n"
-        "- **Sequence identity** — overall % of amino acids that match when the two are "
-        "lined up end-to-end.\n"
-        "- **Algae-delivery fit** *(algae mode)* — how well the peptide matches the "
+        "- **Algae suitability** *(algae mode)* — how well the peptide matches the "
         "physicochemical profile of CPPs that actually worked in microalgae "
-        "(amphipathic/hydrophobic, lower pure charge). Learned from the curated "
-        "evidence ledger; small dataset, so it's a hypothesis-sharpener.\n"
+        "(amphipathic/hydrophobic, lower pure charge). A design heuristic from the curated "
+        "evidence ledger, **not** a delivery probability.\n"
+        "- **Sequence identity** — overall % of amino acids that match end-to-end. On its "
+        "own weakly informative (10% identity can still mean different function).\n"
         "- **CPP likelihood** — a trained model's estimate that it's a genuine "
         "cell-penetrating peptide (not how well it enters algae).\n"
         "- **Key-residue match** *(scaffold mode)* — how well it preserves the residues "
