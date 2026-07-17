@@ -28,6 +28,7 @@ import random
 from dataclasses import dataclass
 from typing import Literal
 
+from .scoring.cytotoxicity import cytotoxicity_factor
 from .scoring.disruption import hemolysis_prior
 from .scoring.insertion import membrane_interaction_capacity
 from .scoring.surface import surface_interaction_prior
@@ -75,26 +76,44 @@ class BenchmarkResult:
     category: Category
     surface: float
     insertion: float
-    disruption: float
+    hemolysis: float
+    cytotox: float
     usable: float
     note: str
 
 
-def _usable(surface: float, insertion: float, disruption: float) -> float:
+def _usable(surface: float, insertion: float, hemolysis: float, cytotox: float,
+            *, exponent: float = 2.0) -> float:
     """usable_delivery on a *bare* peptide (fusion_confidence = 1.0)."""
-    return surface * insertion * (1.0 - disruption) ** 2
+    return float(surface * insertion * (1.0 - hemolysis) ** exponent * cytotox)
 
 
-def run_benchmark() -> list[BenchmarkResult]:
+def run_benchmark(*, exponent: float = 2.0) -> list[BenchmarkResult]:
     """Score the panel and return results sorted by usable-delivery (desc)."""
     out: list[BenchmarkResult] = []
     for p in BENCHMARK_PANEL:
         s = surface_interaction_prior(p.sequence)
         i = membrane_interaction_capacity(p.sequence)
         d = hemolysis_prior(p.sequence)
-        out.append(BenchmarkResult(p.name, p.category, s, i, d, _usable(s, i, d), p.note))
+        c = cytotoxicity_factor(p.sequence)
+        out.append(BenchmarkResult(
+            p.name, p.category, s, i, d, c, _usable(s, i, d, c, exponent=exponent), p.note))
     out.sort(key=lambda r: r.usable, reverse=True)
     return out
+
+
+def exponent_sensitivity() -> dict[float, dict[str, object]]:
+    """AUC + KLA/melittin rank across hemolysis exponents 1, 1.5, 2, 3 (redesign G)."""
+    report: dict[float, dict[str, object]] = {}
+    for e in (1.0, 1.5, 2.0, 3.0):
+        res = run_benchmark(exponent=e)
+        rank = {r.name: i for i, r in enumerate(res, 1)}
+        report[e] = {
+            "auc": round(separation_auc(res), 3),
+            "KLA_rank": rank["KLA (KLAKLAK)2"],
+            "melittin_rank": rank["Melittin"],
+        }
+    return report
 
 
 def separation_auc(results: list[BenchmarkResult]) -> float:
@@ -131,13 +150,11 @@ def _scramble(seq: str, seed: int) -> str:
 def scramble_margin(sequence: str, *, n: int = 15, base_seed: int = 0) -> float:
     """native usable − mean(scramble usable), ×100. Should be clearly positive for a
     sequence-dependent CPP; ~0 or negative means the model ignores residue order."""
-    native = _usable(
-        surface_interaction_prior(sequence), membrane_interaction_capacity(sequence), hemolysis_prior(sequence)
-    )
-    scr = []
-    for k in range(n):
-        s = _scramble(sequence, base_seed + k)
-        scr.append(_usable(surface_interaction_prior(s), membrane_interaction_capacity(s), hemolysis_prior(s)))
+    def u(s: str) -> float:
+        return _usable(surface_interaction_prior(s), membrane_interaction_capacity(s),
+                       hemolysis_prior(s), cytotoxicity_factor(s))
+    native = u(sequence)
+    scr = [u(_scramble(sequence, base_seed + k)) for k in range(n)]
     return (native - _mean(scr)) * 100.0
 
 
@@ -158,16 +175,18 @@ def benchmark_metrics() -> dict[str, object]:
 def main() -> None:
     results = run_benchmark()
     print(f"{'rank':>4} {'peptide':16s} {'class':11s} "
-          f"{'surf':>5s} {'ins':>5s} {'disr':>5s} {'USABLE':>7s}")
+          f"{'surf':>5s} {'ins':>5s} {'hemo':>5s} {'cytox':>5s} {'USABLE':>7s}")
     for rank, r in enumerate(results, 1):
         print(f"{rank:>4} {r.name[:16]:16s} {r.category:11s} "
-              f"{r.surface:5.2f} {r.insertion:5.2f} {r.disruption:5.2f} {r.usable * 100:7.1f}")
+              f"{r.surface:5.2f} {r.insertion:5.2f} {r.hemolysis:5.2f} {r.cytotox:5.2f} "
+              f"{r.usable * 100:7.1f}")
     for c in ("good_cpp", "disruptive", "control"):
         print(f"mean USABLE [{c}]: {_mean([r.usable for r in results if r.category == c]) * 100:.1f}")
     m = benchmark_metrics()
     print(f"\ngood-vs-disruptive separation AUC: {m['separation_auc']}  (0.5 = none)")
     print(f"native-over-scramble margin: {m['scramble_margin']}  (want clearly positive)")
     print(f"key ranks (of {len(results)}): {m['ranks']}")
+    print(f"exponent sensitivity (AUC, KLA rank, melittin rank): {exponent_sensitivity()}")
 
 
 if __name__ == "__main__":

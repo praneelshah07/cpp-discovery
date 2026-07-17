@@ -25,7 +25,7 @@ def test_all_scored_and_bounded() -> None:
     results = run_benchmark()
     assert len(results) == len(BENCHMARK_PANEL)
     for r in results:
-        for v in (r.surface, r.insertion, r.disruption, r.usable):
+        for v in (r.surface, r.insertion, r.hemolysis, r.cytotox, r.usable):
             assert 0.0 <= v <= 1.0
 
 
@@ -48,7 +48,44 @@ def test_KNOWN_FAILURE_hemolysis_misses_KLA() -> None:
     # it near-zero disruption — a documented blind spot (hemolysis != membrane
     # toxicity). If a future model fixes this, update the test.
     kla = _by_name()["KLA (KLAKLAK)2"]
-    assert kla.disruption < 0.15  # type: ignore[attr-defined]  # blind spot present
+    assert kla.hemolysis < 0.15  # type: ignore[attr-defined]  # blind spot present
+
+
+def test_KLA_low_hemolysis_but_elevated_cytotoxicity() -> None:
+    # The Stage-3 fix: KLA's hemolysis is ~0 (the blind spot), but the curated
+    # cytotoxicity axis flags it (factor < 1) so it is demoted by evidence.
+    from cpp_ai.scoring.cytotoxicity import cytotoxicity_class, cytotoxicity_factor
+    kla = "KLAKLAKKLAKLAK"
+    assert cytotoxicity_class(kla) == "cytotoxic_organelle"
+    assert cytotoxicity_factor(kla) < 0.5
+
+
+def test_melittin_high_hemolysis() -> None:
+    from cpp_ai.scoring.disruption import hemolysis_prior, is_trained_model_available
+    if is_trained_model_available():
+        assert hemolysis_prior("GIGAVLKVLTTGLPALISWIKRKRQQ") > 0.7
+
+
+def test_buforin_not_penalized_like_lytic_amps() -> None:
+    # Non-lytic translocator must keep factor 1.0, unlike melittin/KLA.
+    from cpp_ai.scoring.cytotoxicity import cytotoxicity_class, cytotoxicity_factor
+    assert cytotoxicity_class("TRSSRAGLQFPVGRVHRLLRK") == "nonlytic_translocator"
+    assert cytotoxicity_factor("TRSSRAGLQFPVGRVHRLLRK") == 1.0
+
+
+def test_cytotoxicity_demotes_lytic_families() -> None:
+    from cpp_ai.scoring.cytotoxicity import cytotoxicity_factor
+    for lytic in ("GIGAVLKVLTTGLPALISWIKRKRQQ", "INLKALAALAKKIL", "KLALKLALKALKAALKLA"):
+        assert cytotoxicity_factor(lytic) < 1.0
+
+
+def test_exponent_choice_is_not_load_bearing() -> None:
+    # KLA/melittin ranks stable across exponents 1..3 — the cytotoxicity axis, not
+    # the exponent, does the work (redesign G).
+    from cpp_ai.benchmark import exponent_sensitivity
+    rep = exponent_sensitivity()
+    assert len({rep[e]["KLA_rank"] for e in rep}) == 1  # KLA rank identical across exponents
+    assert all(rep[e]["auc"] > 0.63 for e in rep)
 
 
 def test_pvec_beats_its_scrambles_on_average() -> None:

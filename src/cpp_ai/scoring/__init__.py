@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from .blocks import BIOLOGICAL_BLOCKS, BiologicalBlock, all_block_features
 from .context import AlgaeFitScorer, FitContribution, FitTerm
+from .cargo import cargo_class, cargo_what_if_factor
+from .cytotoxicity import cytotoxicity_class, cytotoxicity_factor
 from .disruption import is_trained_model_available, hemolysis_prior
 from .evidence import EvidenceProfile, EvidenceScorer, evidence_level
 from .insertion import membrane_interaction_capacity
@@ -39,6 +41,10 @@ __all__ = [
     "charge_risk",
     "membrane_lysis_risk",
     "hemolysis_prior",
+    "cytotoxicity_class",
+    "cytotoxicity_factor",
+    "cargo_class",
+    "cargo_what_if_factor",
     "is_trained_model_available",
     "surface_interaction_prior",
     "charge_adsorption",

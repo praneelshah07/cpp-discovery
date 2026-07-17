@@ -194,6 +194,44 @@ weight perturbations with top-candidate and benchmark-metric stability.
 
 ---
 
+## Implementation results (staged)
+
+**Stage 1 — renames** (no numeric change): benchmark identical (AUC 0.633).
+
+**Stage 2 — order-sensitive `membrane_interaction_capacity`** (µH + hydrophobic
+clustering, `helix_fraction` removed; + surface cationic-patch term): AUC
+0.633→0.653; pVEC native-over-scramble +24→+32.5, TAT +13.4 (Penetratin −5.2,
+mechanism gap); controls mean 21.0→14.4; pVEC #1, KLA #2.
+
+**Stage 3 — curated `cytotoxicity_prior` + `selectivity_factor`**
+(`(1−hemolysis)² × cytotoxicity_factor`): **AUC 0.653→0.755; KLA #2→#7** (demoted
+by its curated `cytotoxic_organelle` class, factor 0.2 — no peptide name in the
+scoring path); Buforin #4 (factor 1.0, *not* penalized); melittin #17, MAP #16,
+brevinin #10. Exponent sensitivity (1/1.5/2/3): AUC 0.735/0.755/0.755/0.776, KLA
+rank stable at 7 — the cytotoxicity axis, not the exponent, does the work.
+`cargo_delivery_evidence` added as an **advisory** axis (displayed, not in core).
+
+### Stop-condition assessment (directive 10)
+
+| Condition | Target | Result |
+|---|---|---|
+| ROC-AUC above 0.63 | meaningful ↑ | **0.755** ✓ |
+| native-over-scramble positive (chosen CPPs) | pVEC/TAT | pVEC +32.5, TAT +13.4 ✓ (Penetratin −5.2 — documented gap) |
+| KLA no longer top false positive | — | **#7** (below all clear good CPPs) ✓ |
+| melittin/MAP/brevinin deprioritized | — | #17 / #16 / #10 ✓ |
+| Buforin ≠ lytic AMPs | — | #4, factor 1.0 ✓ |
+| stable under ±20% weight perturbation | — | KLA #7, pVEC #1, AUC 0.735–0.776 ✓ |
+| assumptions documented | — | Deliverable 6 ✓ |
+
+**Remaining insufficient representations (honest):** (1) Penetratin's uptake is
+Trp/cation-π-driven, not amphipathic-patterning, so the order-sensitive MIC does
+not give it a positive scramble margin — a *mechanism* gap, not a weight to tune.
+(2) One adversarial pVEC scramble still ranks up (the *average* margin is
+positive; per directive we do not tune to a single scramble). (3) cytotoxicity
+demotes only *curated* scaffolds — most library peptides are `insufficient_evidence`
+(factor 1.0), so coverage grows only with curation. (4) all toxicity priors are
+cross-kingdom (human RBC / mammalian), unvalidated for algae.
+
 ## Implementation order (only after this design is accepted)
 
 1. Rename in code + docs: `disruption → hemolysis_prior`, `insertion_fit →

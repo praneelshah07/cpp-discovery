@@ -33,6 +33,7 @@ from ..similarity.features import PeptideFeatures
 from ..similarity.metrics import SequenceIdentity, SmithWaterman
 from .context import AlgaeFitScorer
 from .insertion import membrane_interaction_capacity
+from .cytotoxicity import cytotoxicity_factor
 from .disruption import hemolysis_prior
 from .physchem import BlockSimilarityIndex
 from .positional import CriticalPositionProfile, critical_position_score
@@ -75,8 +76,9 @@ class EvidenceProfile:
     toxicity_flag: str
     lytic_risk: bool
     charge_risk: float
-    lysis_risk: float  # membrane-disruption prior (trained on HemoPI2), 0=gentle
+    lysis_risk: float  # hemolysis prior (trained on HemoPI2), 0=gentle
     surface_interaction_prior: float  # electrostatic adsorption to the negative algal surface
+    cytotoxicity_factor: float  # curated non-hemolytic cytotoxicity prior (1.0 = no evidence)
     safety_factor: float
     # evidence quality
     evidence: str
@@ -214,6 +216,7 @@ class EvidenceScorer:
             # falling back to the GRAVY heuristic only if the model is unavailable.
             lysis = hemolysis_prior(cand.sequence)
             surface = surface_interaction_prior(cand.sequence)
+            cytotox = cytotoxicity_factor(cand.sequence)
             mod = cand.modification
             crit = (
                 None if crit_profile is None
@@ -249,6 +252,7 @@ class EvidenceScorer:
                     charge_risk=safety.charge_risk,
                     lysis_risk=lysis,
                     surface_interaction_prior=surface,
+                    cytotoxicity_factor=cytotox,
                     safety_factor=safety.safety_factor,
                     evidence=evidence_level(cand),
                     modification=mod.summary,

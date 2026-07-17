@@ -32,6 +32,7 @@ from typing import Any, Literal, Sequence
 
 from .evidence import EvidenceLedger
 from .scoring import AlgaeFitScorer, EvidenceProfile, EvidenceScorer
+from .scoring.cargo import cargo_class
 from .scoring.positional import CriticalPositionProfile
 from .screening import load_cppsite3_library
 from .screening.candidate import ScreenCandidate
@@ -289,8 +290,10 @@ class AlgaeRecommendation:
             )
             if p.cpp_probability is not None:
                 row["cpp_likelihood"] = round(p.cpp_probability, 3)
+            row["hemolysis_prior"] = round(p.lysis_risk, 2)
+            row["cytotoxicity_factor"] = round(p.cytotoxicity_factor, 2)
+            row["cargo_evidence"] = cargo_class(p.sequence)  # advisory, not in ranking
             row["toxicity_risk"] = p.toxicity_flag
-            row["lysis_risk"] = round(p.lysis_risk, 2)
             row["confidence"] = p.ad_confidence
             row["evidence"] = p.evidence
             row["tested_form"] = p.modification
@@ -366,26 +369,43 @@ def _load_classifier() -> Any:
         return pickle.load(fh)
 
 
+# Exponent on the hemolysis term inside selectivity_factor. 2.0 chosen after the
+# exponent-sensitivity scan (docs/redesign.md, `python -m cpp_ai.benchmark --exponents`).
+HEMOLYSIS_EXPONENT = 2.0
+
+
+def selectivity_factor(p: EvidenceProfile, *, exponent: float = HEMOLYSIS_EXPONENT) -> float:
+    """Cell-survival gate combining the two, non-interchangeable toxicity priors:
+
+    ``(1 − hemolysis_prior)^exponent × cytotoxicity_factor``
+
+    hemolysis_prior is the trained RBC-hemolysis phenotype; cytotoxicity_factor is
+    the curated non-hemolytic toxicity prior (organelle/lytic scaffolds). They are
+    kept separate because a peptide can be non-hemolytic yet cytotoxic (KLA)."""
+    return float((1.0 - p.lysis_risk) ** exponent * p.cytotoxicity_factor)
+
+
 def usable_delivery(p: EvidenceProfile) -> float:
-    """Usable algae-delivery score, as a product of separable biological steps:
+    """Usable algae-delivery score, a product of separable biological steps:
 
-    ``surface_interaction_prior × membrane_interaction_capacity × (1 − lysis)² × fusion_confidence``
+    ``surface_interaction_prior × membrane_interaction_capacity × selectivity_factor × fusion_confidence``
 
-    - **surface_interaction_prior** — electrostatic attraction to the negative algal
-      surface (no adsorption → no uptake); peaks ~+4..+6, floors neutral peptides.
-    - **membrane_interaction_capacity** (``algae_fit``) — a literature-weighted membrane-insertion
-      prior (amphipathicity + helix propensity + moderate hydrophobicity; aromatics
-      neutral, charge excluded). Replaces the confounded n≈6 ledger SAR.
-    - **(1 − lysis)²** — squared membrane-lysis penalty (per review).
+    - **surface_interaction_prior** — electrostatic adsorption (charge bell + local
+      cationic-patch term); no adsorption → no uptake.
+    - **membrane_interaction_capacity** (``algae_fit``) — order-sensitive insertion
+      capacity (amphipathic patterning + hydrophobic clustering). Necessary, not
+      sufficient for delivery.
+    - **selectivity_factor** — cell survival: ``(1 − hemolysis)² × cytotoxicity_factor``.
     - **fusion_confidence** — cloneability of the tested form.
 
-    Returns 0 when no algae signal is available (fit None)."""
+    A hypothesis-prioritization score, not an uptake probability. Returns 0 when
+    no membrane-interaction signal is available (algae_fit None)."""
     if p.algae_fit is None:
         return 0.0
     return (
         p.surface_interaction_prior
         * p.algae_fit
-        * (1.0 - p.lysis_risk) ** 2
+        * selectivity_factor(p)
         * p.fusion_confidence
     )
 
