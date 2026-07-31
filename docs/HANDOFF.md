@@ -1,0 +1,174 @@
+# Transfer packet — CPP Discovery platform
+
+Paste this at the start of a new conversation to continue work. It captures the
+project, its current scientific state, the environment, and where we're headed.
+**Current focus:** the scoring logic has just completed a large, benchmark-gated
+redesign (five biological "boxes"); the next frontier is real algae data.
+
+---
+
+## 1. What this is
+
+`cpp-ai` — a research-grade, modular platform that ranks **Cell Penetrating
+Peptides (CPPs)** to test in the lab, with the goal of delivering a **recombinant
+mCherry-fusion protein into microalgae** (target organism: **Auxenochlorella** —
+see the species caveat below). Every output is a *computational hypothesis for
+wet-lab validation*, never a claim of efficacy or uptake probability.
+
+User: Anil/Praneel (praneelshah101@gmail.com), a researcher. Explanations stay
+scientifically honest and, for the app, novice-readable.
+
+## 2. Where everything lives
+
+- **Local repo:** `~/cpp-discovery` (its own git repo; parent `~` is *also* a git
+  repo for unrelated TradingView work — keep all work inside `~/cpp-discovery`).
+- **GitHub:** `github.com/praneelshah07/cpp-discovery` (**private**), branch `main`.
+  SSH key set up, `git push` works non-interactively.
+- **Streamlit Community Cloud:** auto-redeploys on push. Main file:
+  `src/cpp_ai/webapp/app.py`. **A version bump in `pyproject.toml` forces a clean
+  reinstall** (needed because non-editable pip skips unchanged versions). Current
+  version **0.0.14**. Tell the user to **Reboot app** in Manage-app to clear stale
+  caches/modules after a push.
+- **venv:** `~/cpp-discovery/.venv` (`source .venv/bin/activate`).
+
+## 3. Environment quirks (Intel macOS)
+
+Platform: Intel x86_64 macOS, Python 3.10.9. Handled:
+- **`numpy<2`** pinned (PyTorch's last Intel-mac build crashes under numpy 2).
+- **XGBoost won't load** (stale libomp) — guarded/optional, model zoo skips it.
+- **scikit-learn pinned `>=1.7,<1.8`** in `requirements.txt` — the committed
+  hemolysis model pickle is version-sensitive; an older cloud sklearn silently
+  fails to load it and the toxicity axis falls back to the heuristic. If you
+  retrain the model, re-pin to match.
+- Local checks: `python -m pytest -m "not slow"` · `python -m mypy src` ·
+  `python -m ruff check src tests`. **Current state: 392 tests pass, mypy --strict
+  clean (70 files), ruff clean.** Launch app: `streamlit run src/cpp_ai/webapp/app.py`.
+
+## 4. The scoring model (post-redesign — THIS IS THE CORE)
+
+The model is defined as **five biological process boxes** (frozen architecture,
+see `docs/architecture.md`). The runtime ranking:
+
+```
+usable_delivery = surface_interaction_prior      # Box 1
+                × membrane_interaction_capacity   # Box 2  (necessary, NOT sufficient)
+                × selectivity_factor              # Box 3
+                × fusion_confidence               # Box 5
+
+selectivity_factor = (1 − hemolysis_prior)² × cytotoxicity_factor
+```
+A **hypothesis-prioritization score, not an uptake probability.** Component files
+(all under `src/cpp_ai/scoring/`):
+
+- **`surface.py` — `surface_interaction_prior(seq)`** (Box 1): electrostatic
+  adsorption to the anionic algal surface. `0.85·charge_bell + 0.15·cationic-patch`
+  (order-sensitive `longest_basic_run`). Charge sweet spot ~+4..+6.
+- **`insertion.py` — `membrane_interaction_capacity(seq)`** (Box 2): **order-
+  dominant** (0.45 max-local µH + 0.35 hydrophobic clustering + 0.20 GRAVY bell).
+  `helix_fraction` was removed (composition-only). Explicitly *necessary but not
+  sufficient* for delivery.
+- **`disruption.py` — `hemolysis_prior(seq)`** (Box 3, part 1): **trained**
+  HistGradientBoosting on **HemoPI2** hemolysis data (ROC-AUC ~0.82 CV / 0.86
+  independent). Model committed at `data/models/hemolysis_disruption.pkl`; raw
+  CSVs at `data/raw/hemolysis/` (gitignored, re-downloadable from
+  github.com/raghavagps/hemopi2). Retrain: `python -m cpp_ai.scoring.disruption`.
+  It is **RBC-hemolysis only** — blind to non-hemolytic toxicity (e.g. KLA).
+  Falls back to a GRAVY heuristic (`safety.membrane_lysis_risk`) if the model
+  fails to load; the app shows a status caption for which mode is active.
+- **`cytotoxicity.py` — `cytotoxicity_factor(seq)`** (Box 3, part 2): **curated,
+  literature-grounded** axis, SEPARATE from hemolysis. Classes:
+  `cytotoxic_organelle` (KLA, factor 0.2), `membrane_lytic` (melittin/mastoparan/
+  magainin/brevinin/MAP, 0.3), `nonlytic_translocator` (Buforin, 1.0),
+  `conventional_cpp` (1.0), `insufficient_evidence` (1.0, default). **Matched by
+  exact sequence or a DATA-defined regex — no peptide names in the scoring code.**
+  Factors centralized as priors requiring validation.
+- **`cargo.py` — `cargo_class(seq)` / `cargo_what_if_factor(seq)`** (Box 4):
+  **advisory only, NOT in the core score.** Curated cargo-delivery evidence
+  (intact_genetic_fusion … no_evidence). Displayed as a column; a what-if factor
+  shows how ranking would change if folded in.
+- **Box 5 fusion:** `screening/modification.py` — `fusion_confidence` from
+  CPPsite3 mod fields (cloneable 1.0 / terminal 0.9 / tracer 0.8 / functional
+  conjugate 0.4 / non-canonical 0.15). "Only ~30% of the library is cloneable as
+  tested" (even pVEC was tested fluorescein-tagged + amidated).
+
+The orchestration lives in `src/cpp_ai/pipeline.py` (`usable_delivery`,
+`selectivity_factor`, `recommend_for_algae`, `filter_and_rank`, `group_families`,
+`categorize`, `explain_profile`, `HEMOLYSIS_EXPONENT`). The Streamlit app is a
+thin skin over it; there is also a CLI: `python -m cpp_ai.pipeline`.
+
+## 5. The benchmark (validation gate — use it before ANY scoring change)
+
+`src/cpp_ai/benchmark.py` — a fixed panel of ~17 known peptides
+(good_cpp / disruptive / control). Run `python -m cpp_ai.benchmark`. Emits:
+good-vs-disruptive **ROC-AUC**, native-over-scramble margins (multiple seeded
+scrambles), key ranks, and **exponent sensitivity**. Regression-tracked by
+`tests/test_benchmark.py`. **Current: AUC 0.755; KLA #7; pVEC #1; Buforin #4;
+melittin #17. Stable under ±20% weight perturbation.** The design + audit +
+stop-conditions are in `docs/redesign.md`.
+
+**Rule (from the lead review): do NOT tune to individual peptides.** Optimize
+benchmark-wide (AUC, mean scramble margin, family behavior, weight stability).
+
+## 6. Critical scientific facts (context)
+
+- **Anchors:** `ClWOX = TNVYNWFQNRRARTKRK` (plant homeoprotein CPP; **NOT yet shown
+  in algae**), `pVEC = LLIILRRRIRKQAHAHSK` (+6, the algae-proven lead),
+  `pVEC-R6A = LLIILARRIRKQAHAHSK` (+5, the lab's construct). pVEC is the default
+  anchor; the usable-delivery ranking is anchor-independent.
+- **pVEC works in *Chlamydomonas*** (Kang 2017, DOI 10.1016/j.algal.2017.04.022):
+  delivered 6–150 kDa protein non-covalently; **R9, Transportan, TAT, Penetratin
+  all FAILED protein delivery** (only pVEC succeeded). This is in the evidence
+  ledger (`data/curated/cpp_evidence_ledger.json`, 16 entries, 4 cited sources).
+- **Species caveat:** the ledger evidence is **Chlamydomonas** (glycoprotein
+  wall), but the lab's target is **Auxenochlorella** (tougher wall) — so even
+  "direct algal" evidence is a cross-species borrow. Verify the Auxenochlorella
+  wall composition before trusting wall assumptions.
+- **mCherry cargo charge:** pI ≈ 5.6, net ≈ **−6 at pH 7**. Do **NOT** subtract
+  net charges to set a CPP-charge target (an earlier "+10..+12" conclusion was
+  wrong): adsorption is driven by the CPP's **local cationic patch**, not the
+  complex net charge; and pVEC (+6) already delivers protein in algae. Cargo
+  charge is a *fusion-level advisory*, not a reweight.
+- **hemolysis ≠ membrane toxicity:** KLA is non-hemolytic yet mitochondrially
+  toxic — which is why the curated `cytotoxicity_prior` exists separately.
+- **Toxicity is a hard constraint:** the user's thesis shows 9R/pVEC are cytotoxic
+  to *Chlamydomonas* at 5–10 µM (not yet in the ledger — web-verified pulls only).
+
+## 7. Architecture / modules (`src/cpp_ai/`)
+
+core · database (importers) · descriptors (physchem/QSAR) · embeddings (ESM-2,
+optional, off on cloud) · similarity · prediction (RF CPP-vs-random classifier,
+AUC 0.94) · generation · **scoring** (the five-box core, active area) · evidence
+(curated ledger + SAR, now validation-only) · screening (library loading +
+modification) · webapp · **pipeline** · **benchmark**. Each has tests in `tests/`
+and a doc in `docs/`. Removed long ago: ranking, visualization, optimization
+(superseded; recoverable at git tag `pre-prune-0.0.2`).
+
+## 8. Open questions / where to take it (highest value first)
+
+1. **Algae / Auxenochlorella data loop — THE frontier.** Every remaining gap is
+   empirical: the toxicity priors are cross-kingdom (human RBC / mammalian), the
+   cytotoxicity axis only covers *curated* scaffolds, and "productive delivery"
+   can't be computed from sequence. Once the lab has ~20–40 consistent algae
+   delivery + toxicity results, feed them into the ledger and retrain the boxes.
+2. **Penetratin mechanism gap:** it never gets a positive native-over-scramble
+   margin because its uptake is Trp/cation-π-driven, not amphipathic patterning —
+   a real limitation, not a weight to tune.
+3. **Grow the cytotoxicity + cargo annotations** (curated, cited) so more of the
+   library is evidence-covered instead of `insufficient_evidence`.
+4. **Retrain `hemolysis_prior` on algal toxicity data** to close the cross-kingdom
+   gap (currently HemoPI2 / human RBC).
+5. **Add the user's thesis 9R/pVEC algae-toxicity data** to the ledger (needs a
+   verifiable source, per the web-pull policy).
+
+## 9. Working style / conventions
+
+- Modular, tested, typed. Add tests + a `docs/*.md` for new modules; keep
+  `mypy --strict` and `ruff` clean. Commit messages end with the Co-Authored-By
+  trailer. **Benchmark-first, staged changes** — run the full suite + benchmark
+  after each stage, report the metrics, don't merge everything at once.
+- **Never tune the scoring to make one peptide rank a certain way.** Every score
+  must map to a real, literature-supported biological process.
+- The app stays simple (one ranked view, honest labels), and every output is a
+  *hypothesis for wet-lab testing*, not a prediction. Uptake and toxicity are
+  shown as **separate** axes so the user can weigh the trade-off.
+- Commit/push when the user asks; bump the version to force a cloud redeploy.
