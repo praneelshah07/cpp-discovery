@@ -97,6 +97,31 @@ def _scorer(use_algae_fit: bool) -> EvidenceScorer:
     return EvidenceScorer(_library(), classifier=_classifier(), algae_fit_scorer=fit)
 
 
+@st.cache_data(show_spinner="Scoring the library for algae delivery…")
+def _profiles(anchor: str, use_algae_fit: bool) -> list[Any]:
+    """Score every library peptide against the anchor — cached by (anchor, mode).
+
+    Each candidate's scores are intrinsic: they don't change when you move a
+    display slider or open a candidate to inspect it. Caching the whole scan here
+    means only the *first* look at a given anchor pays the cost; every later
+    interaction is instant instead of re-scoring ~2,200 peptides each time.
+    """
+    return _scorer(use_algae_fit).profile(anchor)
+
+
+@st.cache_data(show_spinner="Building the shortlist…")
+def _ranked_groups(anchor: str, use_algae_fit: bool) -> list[Any]:
+    """Score → filter → group near-duplicate scaffolds, cached by (anchor, mode).
+
+    Grouping is anchor-fixed and independent of how many rows you choose to show,
+    so it is cached here and merely sliced by the display slider — the slider and
+    the candidate inspector no longer trigger a re-score or a re-group.
+    """
+    profiles = _profiles(anchor, use_algae_fit)
+    ranked = filter_and_rank(profiles, anchor, low_toxicity=False, rank_by="algae_fit")
+    return group_families(ranked, 0.7)
+
+
 # --------------------------------------------------------------------------- #
 # display helpers
 # --------------------------------------------------------------------------- #
@@ -115,30 +140,33 @@ def _pct(x: float | None) -> int | None:
 
 
 def _table(profiles: list[Any]) -> pd.DataFrame:
+    """Self-explanatory CSV: plain column names with the good/bad direction baked in."""
     rows = []
     for p in profiles:
         row: dict[str, object] = {
-            "Peptide": p.name,
+            "Candidate": p.name,
             "Sequence": p.sequence,
-            "Family": peptide_family(p.sequence),
-            "Composite score": _pct(p.shortlist_score),
-            "Similarity to anchor": _pct(p.physchem),
-            "Shared motif": _pct(p.motif_local),
+            "Type": peptide_family(p.sequence),
+            "Length": len(p.sequence),
+            "Net charge": p.net_charge,
         }
         if p.algae_fit is not None:
-            row["Algae suitability"] = _pct(p.algae_fit)
+            row["Delivery score (0-100, higher=better)"] = _pct(usable_delivery(p))
+            row["Surface binding (0-100)"] = _pct(p.surface_interaction_prior)
+            row["Membrane entry (0-100)"] = _pct(p.algae_fit)
+        row["Damage risk (0-100, lower=better)"] = _pct(p.lysis_risk)
+        row["Toxicity flag"] = _toxicity_label(p)
+        row["Similarity to your peptide (%)"] = _pct(p.physchem)
+        row["Shared motif (%)"] = _pct(p.motif_local)
+        row["Sequence identity (%)"] = _pct(p.global_identity)
         if p.cpp_probability is not None:
-            row["CPP likelihood"] = _pct(p.cpp_probability)
+            row["CPP likelihood (%)"] = _pct(p.cpp_probability)
         if p.critical_position is not None:
-            row["Key-residue match"] = _pct(p.critical_position)
-        row["Net charge"] = p.net_charge
-        row["Hemolysis prior"] = round(p.lysis_risk, 2)
-        row["Toxicity risk"] = _toxicity_label(p)
-        row["Confidence"] = p.ad_confidence
+            row["Key-residue match (%)"] = _pct(p.critical_position)
+        row["Prediction confidence"] = p.ad_confidence
         row["Evidence"] = _evidence_label(p)
-        row["Cloneable"] = "✓" if p.genetically_encodable else "—"
+        row["mCherry-ready (cloneable)"] = "yes" if p.genetically_encodable else "no"
         row["Tested form"] = p.modification
-        row["Sequence identity"] = _pct(p.global_identity)
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -175,10 +203,10 @@ anchor = st.sidebar.text_input("Sequence (one-letter)", value=_PRESETS[choice]).
 n_show = st.sidebar.slider("How many candidates", 5, 40, 15)
 st.sidebar.metric("Cloneable CPPs screened", len(lib))
 st.sidebar.caption(
-    "Ranked by **usable delivery** = surface binding × insertion fit × "
-    "(1 − hemolysis)² × cloneability, where hemolysis is a trained hemolysis "
-    "prior. Hemolytic-looking peptides are kept but flagged ⚠. Near-identical "
-    "scaffolds are grouped — expand any candidate to see its variants."
+    "Ranked by **Delivery score** = surface binding × membrane entry × safety × "
+    "mCherry-readiness. Membrane-damaging (hemolytic-looking) peptides are kept "
+    "but flagged ⚠. Near-identical scaffolds are grouped into one row — expand any "
+    "candidate to see its variants."
 )
 
 if not anchor:
@@ -190,13 +218,10 @@ st.markdown(
 )
 
 # ---- score (always optimized for algae delivery) ----
+# Scoring + grouping are cached by (anchor, mode); the slider only slices the
+# result, so moving it or inspecting a candidate is instant.
 _algae_on = _algae_fit() is not None
-with st.spinner("Scoring the library for algae delivery…"):
-    profiles = _scorer(_algae_on).profile(anchor)
-
-# usable-delivery ranking; keep lytic peptides (warn, don't exclude).
-ranked = filter_and_rank(profiles, anchor, low_toxicity=False, rank_by="algae_fit")
-groups = group_families(ranked, 0.7)[:n_show]
+groups = _ranked_groups(anchor, _algae_on)[:n_show]
 reps = [g.representative for g in groups]
 
 _LYSIS_WARN = 0.5
@@ -211,20 +236,68 @@ def _lean_table(family_groups: list[Any]) -> pd.DataFrame:
     rows = []
     for g in family_groups:
         p = g.representative
+        risk = round((p.lysis_risk or 0.0) * 100)
         rows.append({
-            "Peptide": p.name,
-            "Family": peptide_family(p.sequence),
-            "Usable delivery": _pct(usable_delivery(p)) if p.algae_fit is not None else None,
-            "Surface interaction": _pct(p.surface_interaction_prior),
-            "Membrane interaction": _pct(p.algae_fit),
-            "Hemolysis": ("⚠ " if p.lysis_risk >= _LYSIS_WARN else "") + f"{p.lysis_risk:.2f}",
-            "Charge": p.net_charge,
-            "Charge density": round(charge_density(p), 2),
-            "Cloneable": "✓" if p.genetically_encodable else "—",
+            "Candidate": p.name,
+            "Type": peptide_family(p.sequence),
+            "Delivery score": _pct(usable_delivery(p)) if p.algae_fit is not None else None,
+            "Surface binding": _pct(p.surface_interaction_prior),
+            "Membrane entry": _pct(p.algae_fit),
+            "Damage risk": ("⚠ " if p.lysis_risk >= _LYSIS_WARN else "") + str(risk),
+            "Net charge": p.net_charge,
+            "mCherry-ready": "✓" if p.genetically_encodable else "—",
             "Confidence": p.ad_confidence,
-            "Variants": g.size,
+            "Similar variants": g.size,
         })
     return pd.DataFrame(rows)
+
+
+# Plain-language column meanings, shown on hover — so someone who doesn't live in
+# CPP jargon can read the table without a glossary. All 0–100 scores are "higher
+# is better" *except* Damage risk (lower is better), which is called out.
+def _column_config() -> dict[str, Any]:
+    return {
+        "Type": st.column_config.TextColumn(
+            "Type", help="Rough mechanism family guessed from the sequence "
+            "(a convenience label, not a strict classification)."),
+        "Delivery score": st.column_config.ProgressColumn(
+            "Delivery score", min_value=0, max_value=100, format="%d",
+            help="The headline ranking, 0–100 (higher = more promising). Combines "
+            "surface binding × membrane entry × safety × mCherry-readiness, so a "
+            "peptide must do well on ALL of them to score high. It's a way to "
+            "prioritize what to test — NOT a probability that delivery will work."),
+        "Surface binding": st.column_config.NumberColumn(
+            "Surface binding", format="%d",
+            help="Step 1: how strongly the peptide is pulled onto the algal cell "
+            "surface (which is negatively charged). 0–100, higher = better. "
+            "Strongest around a mild positive charge of +4 to +6."),
+        "Membrane entry": st.column_config.NumberColumn(
+            "Membrane entry", format="%d",
+            help="Step 2: how well the peptide's shape lets it slip into the "
+            "membrane. 0–100, higher = better. Needed for delivery, but not a "
+            "guarantee of it on its own."),
+        "Damage risk": st.column_config.TextColumn(
+            "Damage risk ⬇", help="Chance the peptide ruptures/damages membranes — "
+            "a trained toxicity estimate shown as 0–100 where LOWER is better. "
+            "⚠ marks 50+ : it looks like a membrane-damaging peptide. Such peptides "
+            "are kept (they may still work) but flagged so you can weigh the risk."),
+        "Net charge": st.column_config.NumberColumn(
+            "Net charge", format="%+d",
+            help="Overall electrical charge from its amino acids (+ from R/K, "
+            "− from D/E). A mild positive charge (+4 to +6) binds the algal "
+            "surface best."),
+        "mCherry-ready": st.column_config.TextColumn(
+            "mCherry-ready", help="✓ = can be used directly as a gene fused to "
+            "mCherry (no chemical synthesis, tags, or modifications). Only about a "
+            "third of the library qualifies — even pVEC was tested in a modified form."),
+        "Confidence": st.column_config.TextColumn(
+            "Confidence", help="How similar this sequence is to well-studied CPPs. "
+            "'low' means an unusual peptide, so read its scores with extra caution."),
+        "Similar variants": st.column_config.NumberColumn(
+            "Similar variants", format="%d",
+            help="How many near-identical sequences are folded into this one row. "
+            "Open the candidate under 'Inspect' to see them all, ranked."),
+    }
 
 
 st.subheader(f"Top {len(reps)} algae-delivery candidates")
@@ -241,7 +314,12 @@ else:
         "(likely a scikit-learn version mismatch). Hemolysis-prior scores are the crude "
         "GRAVY heuristic, not the trained prior."
     )
-st.dataframe(_lean_table(groups), use_container_width=True, hide_index=True)
+st.dataframe(_lean_table(groups), use_container_width=True, hide_index=True,
+             column_config=_column_config())
+st.caption(
+    "💡 Hover over any column header for a plain-language explanation. Every 0–100 "
+    "score is *higher = better* — except **Damage risk ⬇**, where lower is better."
+)
 
 # ---- inspect one candidate: properties + why it fits algae + variants ----
 st.markdown("### 🔬 Inspect a candidate")
@@ -252,19 +330,26 @@ if sel != "—":
     p = g.representative
     if p.lysis_risk >= _LYSIS_WARN:
         st.warning(
-            f"High **hemolysis prior ({_pct(p.lysis_risk)}%)** — this peptide "
-            "resembles hemolytic/AMP peptides. It may still enter cells, but could also "
-            "damage membranes / be toxic. Not disqualifying — a high-uptake peptide with "
-            "high hemolysis is a real (if risky) candidate; verify algal toxicity.",
+            f"High **membrane-damage risk ({_pct(p.lysis_risk)}%)** — this peptide "
+            "looks like membrane-damaging (hemolytic/AMP) peptides. It may still enter "
+            "cells, but could also harm membranes / be toxic. Not disqualifying — a "
+            "strong-entry peptide with high damage risk is a real (if risky) candidate; "
+            "verify toxicity in algae.",
             icon="⚠️",
         )
     c1, c2, c3 = st.columns(3)
-    c1.metric("Usable delivery", _pct(usable_delivery(p)) if p.algae_fit is not None else "—")
-    c1.metric("Surface interaction", _pct(p.surface_interaction_prior))
-    c2.metric("Membrane interaction", _pct(p.algae_fit))
-    c2.metric("Hemolysis prior", _pct(p.lysis_risk))
-    c3.metric("Net charge", f"{p.net_charge:+d}")
-    c3.metric("Fusion confidence", f"{p.fusion_confidence:.2f}")
+    c1.metric("Delivery score", _pct(usable_delivery(p)) if p.algae_fit is not None else "—",
+              help="Headline 0–100 ranking (higher = better). Prioritization heuristic, not a probability.")
+    c1.metric("Surface binding", _pct(p.surface_interaction_prior),
+              help="How strongly it sticks to the negatively-charged algal surface (step 1).")
+    c2.metric("Membrane entry", _pct(p.algae_fit),
+              help="How well its shape lets it enter the membrane (step 2).")
+    c2.metric("Damage risk", _pct(p.lysis_risk),
+              help="Membrane-rupture (toxicity) estimate, 0–100 — lower is better.")
+    c3.metric("Net charge", f"{p.net_charge:+d}",
+              help="Overall charge; +4 to +6 binds the algal surface best.")
+    c3.metric("Cloning confidence", f"{p.fusion_confidence:.2f}",
+              help="How well the plain cloned sequence matches the form actually tested (1.0 = identical).")
     st.markdown(
         f"`{p.sequence}` · **{peptide_family(p.sequence)}** · length {len(p.sequence)} · "
         f"{'cloneable (mCherry-fusion ready)' if p.genetically_encodable else 'tested form: ' + p.modification}"
@@ -281,40 +366,43 @@ if sel != "—":
     if g.size > 1:
         with st.expander(f"🧬 See all {g.size} variants of this scaffold (ranked)"):
             st.dataframe(_lean_table([group_families([m], 1.0)[0] for m in g.members]),
-                         use_container_width=True, hide_index=True)
+                         use_container_width=True, hide_index=True,
+                         column_config=_column_config())
 
 filtered = reps  # used by the download section below
 
-with st.expander("ℹ️ How the ranking works"):
+with st.expander("ℹ️ What the columns mean (plain language)"):
     st.markdown(
-        "Candidates are ordered by **usable delivery = surface binding × insertion "
-        "fit × (1 − hemolysis)² × fusion confidence** — three separable biological "
-        "steps plus cloneability, so a peptide has to clear *all* of them to rank high.\n\n"
-        "- **Usable delivery** — the headline 0–100 ranking score above. A design "
-        "heuristic, **not** a delivery probability.\n"
-        "- **Surface binding** — electrostatic attraction to the *negatively charged* "
-        "algal surface (the first step: no adsorption → no uptake). Peaks at net "
-        "charge **+4 to +6**; neutral/negative peptides score low and appear only as "
-        "exploratory. This is why the algae-proven anchors are all cationic.\n"
-        "- **Insertion fit** — match to the membrane-*insertion* profile of CPPs that "
-        "worked in microalgae (amphipathic/hydrophobic/shape), learned from the "
-        "evidence ledger. Charge is handled by Surface binding, not here.\n"
-        "- **Hemolysis prior** — a **trained hemolysis prior** (a model trained on "
-        "HemoPI2 hemolysis data, ROC-AUC ~0.85), giving P(membrane-disruptive/AMP-like). "
-        "⚠ (≥0.50) = resembles hemolytic peptides; kept but flagged. It is trained on "
-        "**human red-blood-cell** hemolysis, so it is a cross-kingdom *prior* for algae, "
-        "not a measured algal toxicity — and it predicts the *hemolytic* phenotype only, "
-        "so it is **blind to non-hemolytic membrane toxicity** (e.g. KLA-type "
-        "mitochondrial toxins score near zero). Uptake (Surface + Insertion) and toxicity "
-        "(Hemolysis) are shown separately so you can weigh the trade-off yourself.\n"
-        "- **Cloneable / Fusion confidence** — whether the peptide was tested as the "
-        "bare sequence (✓, mCherry-fusion ready) or in a form that may not transfer "
-        "(fluorescein tag, amidation, lipidation, non-canonical residues). Only ~30% "
-        "of the library is fully cloneable — even pVEC was tested tagged + amidated.\n"
-        "- **Family** — a coarse mechanistic tag (heuristic). **Variants** — how many "
-        "near-identical scaffolds are grouped under this row (expand via *Inspect*).\n"
-        "- **Confidence** — how close the peptide is to ones the tool has seen; 'low' "
-        "means an unusual sequence — treat its scores cautiously."
+        "Think of delivery as an obstacle course: a peptide has to **stick to the "
+        "cell**, then **get through the membrane**, without **killing the cell**, and "
+        "still be **easy to build**. The **Delivery score** multiplies those steps "
+        "together, so a peptide has to do well on *all* of them to rank high.\n\n"
+        "- **Delivery score** (0–100, higher better) — the headline ranking = surface "
+        "binding × membrane entry × safety × mCherry-readiness. A way to prioritize "
+        "what to test, **not** a probability that delivery will work.\n"
+        "- **Surface binding** (0–100, higher better) — pull toward the *negatively "
+        "charged* algal surface, the essential first step. Strongest at net charge "
+        "**+4 to +6**; neutral/negative peptides score low and show up only as "
+        "exploratory. (This is why the algae-proven peptides are all mildly positive.)\n"
+        "- **Membrane entry** (0–100, higher better) — how well the peptide's shape "
+        "lets it slip into the membrane, learned from CPPs that worked in microalgae. "
+        "Charge is handled by Surface binding, not here.\n"
+        "- **Damage risk ⬇** (0–100, *lower* better) — a **trained toxicity estimate** "
+        "(model trained on real hemolysis data, ROC-AUC ~0.85): does it look like a "
+        "membrane-damaging peptide? ⚠ marks 50+. It's trained on **human red-blood-cell** "
+        "damage, so it's a borrowed cross-kingdom estimate for algae — not a measured "
+        "algal toxicity — and it only sees membrane-*rupturing* toxicity (some toxins "
+        "that kill by other routes score near zero). Delivery and damage are shown "
+        "**separately** so you can weigh the trade-off yourself.\n"
+        "- **mCherry-ready** (✓ / —) — whether the peptide can be used as the bare "
+        "gene fused to mCherry (✓) or was only tested in a modified form that may not "
+        "transfer (a dye tag, amidation, lipidation, unusual residues). Only ~30% of "
+        "the library is fully cloneable — even pVEC was tested tagged + amidated.\n"
+        "- **Type** — a rough mechanism family from the sequence (a convenience label). "
+        "**Similar variants** — how many near-identical sequences are grouped under this "
+        "row (expand via *Inspect*).\n"
+        "- **Confidence** — how close the peptide is to ones the tool has seen well; "
+        "'low' means an unusual sequence — treat its scores cautiously."
     )
 
 # ---- downloads ----

@@ -438,8 +438,21 @@ def group_families(
     """
     groups: list[tuple[EvidenceProfile, list[EvidenceProfile]]] = []
     for p in profiles:
+        seq = p.sequence
         for rep, members in groups:
-            if SequenceMatcher(None, p.sequence, rep.sequence).ratio() >= threshold:
+            # Gate the O(len²) ratio() behind SequenceMatcher's cheap upper bounds
+            # (real_quick_ratio is length-only, quick_ratio is multiset-only). Both
+            # over-estimate ratio(), so anything they rule out below the threshold
+            # provably can't pass — the grouping is byte-for-byte the same, but most
+            # dissimilar pairs are now rejected in O(len) instead of O(len²). This
+            # turns the ~n² scan over the ~2,200-peptide library from tens of
+            # seconds into a fraction of one.
+            sm = SequenceMatcher(None, seq, rep.sequence)
+            if (
+                sm.real_quick_ratio() >= threshold
+                and sm.quick_ratio() >= threshold
+                and sm.ratio() >= threshold
+            ):
                 members.append(p)
                 break
         else:

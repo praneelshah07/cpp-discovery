@@ -34,7 +34,7 @@ from ..similarity.metrics import SequenceIdentity, SmithWaterman
 from .context import AlgaeFitScorer
 from .insertion import membrane_interaction_capacity
 from .cytotoxicity import cytotoxicity_factor
-from .disruption import hemolysis_prior
+from .disruption import hemolysis_prior_batch
 from .physchem import BlockSimilarityIndex
 from .positional import CriticalPositionProfile, critical_position_score
 from .safety import assess_safety
@@ -200,6 +200,12 @@ class EvidenceScorer:
             na = np.linalg.norm(ae)
             anchor_emb_unit = ae / na if na else ae
 
+        # Box 3 (cell survival): trained membrane-disruption prior (HemoPI2). It is
+        # anchor-independent, so score the whole library in ONE batched model call
+        # (featurizing only the model's own descriptor blocks) rather than once per
+        # candidate — this is the dominant cost of the library scan.
+        lysis_values = hemolysis_prior_batch([c.sequence for c in self.library])
+
         profiles: list[EvidenceProfile] = []
         for i, cand in enumerate(self.library):
             p = phys[cand.sequence]
@@ -212,9 +218,7 @@ class EvidenceScorer:
             cpp = None if cpp_probs is None else float(cpp_probs[i])
             blocks = {b.name: b.similarity for b in p.blocks}
             safety = assess_safety(cand.net_charge, cand.lytic_risk)
-            # Box 3 (cell survival): trained membrane-disruption prior (HemoPI2),
-            # falling back to the GRAVY heuristic only if the model is unavailable.
-            lysis = hemolysis_prior(cand.sequence)
+            lysis = lysis_values[i]
             surface = surface_interaction_prior(cand.sequence)
             cytotox = cytotoxicity_factor(cand.sequence)
             mod = cand.modification

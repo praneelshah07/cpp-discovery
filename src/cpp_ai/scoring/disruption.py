@@ -34,10 +34,10 @@ from __future__ import annotations
 import logging
 import pickle
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from ..core.types import is_canonical_sequence
-from ..descriptors import compute_descriptors
+from ..descriptors import DESCRIPTOR_REGISTRY, compute_descriptors
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +67,31 @@ def _available_features() -> list[str]:
     return [f for f in _FEATURE_WISHLIST if f in d]
 
 
-def _featurize(sequence: str, features: list[str]) -> list[float]:
-    d = compute_descriptors(sequence).values
+def _blocks_for(features: Sequence[str]) -> tuple[str, ...]:
+    """Minimal set of descriptor blocks that emit ``features`` (cached).
+
+    The model uses only ~25 of the ~210 descriptors in the full battery. Because
+    each block is a *pure function of the sequence* and feature names are globally
+    unique, computing only the blocks that carry the model's features yields
+    byte-identical values to running the whole battery — we simply skip ~185
+    features the model never reads. This is the bulk of the per-peptide speedup.
+    """
+    key = "blocks:" + ",".join(features)
+    cached = _cache.get(key)
+    if cached is not None:
+        return cached  # type: ignore[no-any-return]
+    wanted = set(features)
+    needed = tuple(
+        name
+        for name in DESCRIPTOR_REGISTRY.names()
+        if wanted.intersection(compute_descriptors("LLIILRRRIRKQAHAHSK", blocks=(name,)).values)
+    )
+    _cache[key] = needed
+    return needed
+
+
+def _featurize(sequence: str, features: Sequence[str], blocks: tuple[str, ...]) -> list[float]:
+    d = compute_descriptors(sequence, blocks=blocks).values
     return [float(d[f]) for f in features]
 
 
@@ -101,9 +124,42 @@ def hemolysis_prior(sequence: str) -> float:
     if bundle is None:
         from .safety import membrane_lysis_risk
         return membrane_lysis_risk(sequence)
-    x = _featurize(sequence, bundle["features"])
+    features = bundle["features"]
+    x = _featurize(sequence, features, _blocks_for(features))
     proba = bundle["model"].predict_proba([x])[0][1]
     return float(proba)
+
+
+def hemolysis_prior_batch(sequences: Sequence[str]) -> list[float]:
+    """Vectorized :func:`hemolysis_prior` — one model call for the whole library.
+
+    Returns the *same per-sequence value* as calling ``hemolysis_prior`` in a loop
+    (the tree model scores each row independently), but featurizes only the
+    model's own descriptor blocks and runs a single ``predict_proba`` on a stacked
+    array instead of one call per peptide. That is where the library scan spent
+    ~80% of its time. Non-canonical sequences map to ``0.0``; with no trained
+    model available it falls back to the per-sequence heuristic.
+    """
+    seqs = list(sequences)
+    bundle = _load_model()
+    if bundle is None:
+        from .safety import membrane_lysis_risk
+        return [membrane_lysis_risk(s) if is_canonical_sequence(s) else 0.0 for s in seqs]
+
+    features = bundle["features"]
+    blocks = _blocks_for(features)
+    out = [0.0] * len(seqs)
+    idx = [i for i, s in enumerate(seqs) if is_canonical_sequence(s)]
+    if not idx:
+        return out
+
+    import numpy as np
+
+    x = np.asarray([_featurize(seqs[i], features, blocks) for i in idx], dtype=np.float64)
+    proba = bundle["model"].predict_proba(x)[:, 1]
+    for j, i in enumerate(idx):
+        out[i] = float(proba[j])
+    return out
 
 
 def is_trained_model_available() -> bool:
@@ -121,12 +177,13 @@ def train() -> None:
     from sklearn.model_selection import cross_val_score
 
     features = _available_features()
+    blocks = _blocks_for(features)
 
     def load(name: str) -> tuple[Any, Any]:
         df = pd.read_csv(_DATA_DIR / f"{name}.csv")
         df["SEQUENCE"] = df["SEQUENCE"].str.strip().str.upper()
         df = df[df["SEQUENCE"].apply(is_canonical_sequence)]
-        x = np.asarray([_featurize(s, features) for s in df["SEQUENCE"]], dtype=np.float64)
+        x = np.asarray([_featurize(s, features, blocks) for s in df["SEQUENCE"]], dtype=np.float64)
         return x, df["label"].to_numpy()
 
     x_cv, y_cv = load("cross_val_dataset")
