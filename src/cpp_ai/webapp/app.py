@@ -239,6 +239,7 @@ def _lean_table(family_groups: list[Any]) -> pd.DataFrame:
         risk = round((p.lysis_risk or 0.0) * 100)
         rows.append({
             "Candidate": p.name,
+            "Sequence": p.sequence,
             "Type": peptide_family(p.sequence),
             "Delivery score": _pct(usable_delivery(p)) if p.algae_fit is not None else None,
             "Surface binding": _pct(p.surface_interaction_prior),
@@ -257,6 +258,10 @@ def _lean_table(family_groups: list[Any]) -> pd.DataFrame:
 # is better" *except* Damage risk (lower is better), which is called out.
 def _column_config() -> dict[str, Any]:
     return {
+        "Sequence": st.column_config.TextColumn(
+            "Sequence", help="The peptide's amino-acid sequence (one-letter code). "
+            "Expand a candidate under 'Inspect' to see the sequences of every "
+            "near-identical variant grouped under it.", width="medium"),
         "Type": st.column_config.TextColumn(
             "Type", help="Rough mechanism family guessed from the sequence "
             "(a convenience label, not a strict classification)."),
