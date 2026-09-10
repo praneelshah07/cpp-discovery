@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import math
+from functools import lru_cache
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import numpy as np
@@ -124,20 +125,73 @@ def compute_descriptors(
         )
 
     selected = tuple(blocks) if blocks is not None else DESCRIPTOR_REGISTRY.names()
+    values = dict(_compute_descriptor_values(seq, selected))
+
+    return DescriptorSet(
+        sequence=seq, peptide_id=peptide_id, values=values, blocks=selected
+    )
+
+
+@lru_cache(maxsize=256)
+def blocks_for(features: tuple[str, ...]) -> tuple[str, ...]:
+    """Minimal set of registered blocks that together emit all of ``features``.
+
+    The full battery has ~210 features across many blocks, but most callers use
+    only a handful. Because each block is a pure function of the sequence and
+    feature names are globally unique, computing only the blocks that carry the
+    requested features yields values **byte-identical** to running the whole
+    battery — the other blocks are simply skipped. The block→feature mapping is
+    fixed, so we probe it once with a canonical reference sequence and cache.
+    """
+    wanted = set(features)
+    probe = "LLIILRRRIRKQAHAHSK"  # canonical reference; block feature keys are sequence-independent
+    return tuple(
+        name
+        for name in DESCRIPTOR_REGISTRY.names()
+        if wanted.intersection(compute_descriptors(probe, blocks=(name,)).values)
+    )
+
+
+@lru_cache(maxsize=131072)
+def _compute_one_block(seq: str, block_name: str) -> tuple[tuple[str, float], ...]:
+    """Memoized single descriptor block for one sequence.
+
+    Caching at the **block** level (not the block-*tuple* level) is what removes
+    the last of the redundant work: a block such as ``hydrophobic_moment`` is
+    requested inside many different block-sets (the algae SAR, the mechanistic
+    insertion term, the hemolysis model, ...), and this ensures it is computed
+    exactly once per sequence and reused across all of them. Values are
+    byte-for-byte identical to computing the block inline.
+    """
+    fn = DESCRIPTOR_REGISTRY.get(block_name)
+    return tuple((feature, _finite_float(raw, feature=feature)) for feature, raw in fn(seq).items())
+
+
+@lru_cache(maxsize=16384)
+def _compute_descriptor_values(
+    seq: str, selected: tuple[str, ...]
+) -> tuple[tuple[str, float], ...]:
+    """Memoized core of :func:`compute_descriptors`, composed from per-block caches.
+
+    Descriptor blocks are pure functions of the (canonical, upper-cased) sequence,
+    yet the pipeline requests overlapping block-sets for the same peptides many
+    times per run (library standardization, the algae-fit scorer, the mechanistic
+    insertion term, hemolysis featurization, ...). This composes the requested
+    ``selected`` blocks from :func:`_compute_one_block`, so each block is computed
+    once per sequence and shared across every block-set. The outer cache also
+    short-circuits repeated identical ``(sequence, blocks)`` requests. Returned as
+    a tuple of items so the cached object is immutable; callers rebuild a ``dict``.
+    """
     values: dict[str, float] = {}
     for block_name in selected:
-        fn = DESCRIPTOR_REGISTRY.get(block_name)
-        for feature, raw in fn(seq).items():
+        for feature, val in _compute_one_block(seq, block_name):
             if feature in values:
                 raise ValidationError(
                     f"Duplicate feature name {feature!r} emitted by block "
                     f"{block_name!r}; feature names must be globally unique."
                 )
-            values[feature] = _finite_float(raw, feature=feature)
-
-    return DescriptorSet(
-        sequence=seq, peptide_id=peptide_id, values=values, blocks=selected
-    )
+            values[feature] = val
+    return tuple(values.items())
 
 
 def compute_for_peptide(

@@ -62,14 +62,16 @@ def test_to_dataframe_flattens_citation() -> None:
     led = build_seed_ledger()
     df = led.to_dataframe()
     assert "doi" in df.columns and "citation_title" in df.columns
-    assert df["doi"].notna().all()  # every seed row is cited
+    assert df["citation_title"].notna().all()  # every seed row is attributed to a source
 
 
 def test_seed_integrity() -> None:
     led = build_seed_ledger()
     assert len(led) >= 15
-    # every entry carries a resolvable citation (verified web pulls only)
-    assert all(e.citation.resolvable() for e in led)
+    # every entry is attributed to a source (title required); published entries
+    # carry a resolvable DOI/URL, while unpublished lab-data entries are title-only.
+    assert all(e.citation.title for e in led)
+    assert all(e.citation.resolvable() for e in led if e.citation.doi)
     # the context reversal is present: R9 is a mammalian success but an algae failure
     # (Kang 2017: R9 penetrates but does not deliver protein into Chlamydomonas)
     r9 = [e for e in led if e.peptide_name == "R9"]

@@ -33,3 +33,6 @@ embeddings_cache/
 .DS_Store
 .idea/
 .vscode/
+
+# headless run_recommend.py output (generated)
+results.csv

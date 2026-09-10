@@ -65,16 +65,22 @@ prediction accuracy), the ranking's insertion term is a small, fixed,
 biophysically-defensible combination — **amphipathicity (µH) + helix propensity +
 moderate hydrophobicity, aromatics neutral, charge excluded** — rather than a fit.
 
-Why a prior, not a fit: the n≈6 ledger SAR (`context.py`, below) was too small to
-set weights and had learned two directions that **contradict established membrane
-biophysics** — penalizing aromaticity (Trp is a canonical interfacial anchor that
-*aids* insertion; R7→R7W increases uptake) and rewarding the aliphatic index (a
-thermostability metric redundant with hydrophobicity). The SAR is kept only to
-**validate** the model (`tests/test_validation.py`: known algae winners must
-out-rank losers), and should drive weights again only when the ledger is large
-enough to overrule a biophysical prior.
+Why keep a mechanistic prior at all: the early n≈6 ledger SAR (`context.py`, below)
+was too small to set weights and had learned two directions that **contradict
+established membrane biophysics** — penalizing aromaticity (Trp is a canonical
+interfacial anchor that *aids* insertion; R7→R7W increases uptake) and rewarding
+the aliphatic index (a thermostability metric redundant with hydrophobicity).
 
-## Context fitness — the algae-delivery axis (`context.py`, now validation-only)
+**Update (ledger now n=12, real algae mCherry-NLS data).** Adding the lab's own
+protein-cargo screen — including **FUS1**, a Trp-containing *winner* — softened the
+SAR's anti-aromatic weight (−0.57 → −0.40). The SAR is no longer validation-only:
+it is now **blended** with this mechanistic prior into the combined membrane term
+(`algae_membrane_term`, weight `ALGAE_SAR_WEIGHT = 0.5`). The blend is deliberate —
+the biophysical prior counterbalances the SAR's residual aliphatic-index overweight
+while the ledger pulls ranking toward empirically-verified algae winners. The
+`ALGAE_SAR_WEIGHT` is the natural knob to tune as the ledger grows.
+
+## Context fitness — the algae-delivery axis (`context.py`, blended into ranking)
 
 `AlgaeFitScorer` is the first place the platform's *empirical* knowledge feeds
 the ranking. It answers a question anchor-resemblance cannot: **is this the kind

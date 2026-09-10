@@ -35,6 +35,11 @@ SEQ = {
     "TP10": "AGYLLGKINLKALAALAKKIL",
     "MAP": "KLALKLALKALKAALKLA",
     "ClWOX": "TNVYNWFQNRRARTKRK",
+    # Lab mCherry-NLS screen peptides (sequences provided by the lab).
+    "MAR1": "PPRPPWPPRPPPAPPPSRPP",
+    "FUS1": "IALVWSFRMLRHKP",
+    "SAG1": "GCAAALGYWGLREQSWAQLG",
+    "gAUT": "AQEEFQGVGMVKLKSAFR",
 }
 
 # --------------------------------------------------------------------------- #
@@ -69,6 +74,33 @@ KANG_2017 = Citation(
     year=2017,
     authors_short="Kang, Suresh & Kim",
     doi="10.1016/j.algal.2017.04.022",
+)
+KANG_2020 = Citation(
+    title=(
+        "Development of a pVEC peptide-based ribonucleoprotein (RNP) delivery "
+        "system for genome editing using CRISPR/Cas9 in Chlamydomonas reinhardtii"
+    ),
+    year=2020,
+    authors_short="Kang et al.",
+    doi="10.1038/s41598-020-78968-x",
+)
+SIM_2025 = Citation(
+    title=(
+        "Cell-Penetrating Peptide-Based Triple Nanocomplex Enables Efficient "
+        "Nuclear Gene Delivery in Chlamydomonas reinhardtii"
+    ),
+    year=2025,
+    authors_short="Sim et al.",
+    doi="10.1002/bit.29019",
+)
+# The lab's own mCherry-NLS delivery screen (flow cytometry, C. reinhardtii).
+# 20 uM free peptide co-incubated with 20 uM mCherry-NLS; readout = % mCherry+
+# cells (R2 gate on the YL2-A channel). Not a peer-reviewed publication — an
+# internal experimental record, so no DOI. Directly in the lab's target regime.
+HILLMAN_2026 = Citation(
+    title="Lab mCherry-NLS peptide delivery screen (Round 1), Chlamydomonas reinhardtii",
+    year=2026,
+    authors_short="Hillman (unpublished lab data)",
 )
 
 
@@ -296,6 +328,143 @@ def build_seed_ledger() -> EvidenceLedger:
             uptake_metric="did NOT deliver protein into algae effectively (only pVEC did)",
             citation=KANG_2017,
             confidence="high",
+        ),
+        # ---- algae, large-protein cargo, pVEC family (Kang 2020, Sim 2025) ---- #
+        EvidenceEntry(
+            peptide_name="pVEC",
+            sequence=SEQ["pVEC"],
+            organism="algae",
+            cell_type="Chlamydomonas reinhardtii",
+            cargo_type="protein",
+            cargo_name="Cas9 ribonucleoprotein (RNP)",
+            cargo_kda=160.0,
+            outcome="success",
+            uptake_metric="delivered Cas9 RNP for CRISPR genome editing (functional editing detected)",
+            mechanism="unknown",
+            citation=KANG_2020,
+            confidence="high",
+            notes="pVEC carries a very large (~160 kDa) protein complex into algae — supports large-cargo capability.",
+        ),
+        EvidenceEntry(
+            peptide_name="pVEC-R6A",
+            sequence=SEQ["pVEC-R6A"],
+            organism="algae",
+            cell_type="Chlamydomonas reinhardtii",
+            cargo_type="nucleic_acid",
+            cargo_name="plasmid DNA (triple nanocomplex)",
+            outcome="success",
+            uptake_metric="efficient nuclear gene (DNA) delivery via a CPP-based triple nanocomplex",
+            mechanism="unknown",
+            citation=SIM_2025,
+            confidence="high",
+            notes="pVEC-R6A used for nuclear DNA delivery — the lab's construct in a peer-reviewed setting.",
+        ),
+        # ---- algae, mCherry-NLS protein cargo — the lab's own screen (2026) --- #
+        # Flow cytometry, % mCherry+ cells (YL2-A / R2 gate); 20 uM peptide +
+        # 20 uM mCherry-NLS, non-covalent. Control (no useful CPP) = 0.247%.
+        # Per the lab: weak peptides "don't work well" but are NOT hard failures
+        # (all sit above the 0.247% control), so they are recorded as "partial".
+        EvidenceEntry(
+            peptide_name="pVEC-R6A",
+            sequence=SEQ["pVEC-R6A"],
+            organism="algae",
+            cell_type="Chlamydomonas reinhardtii",
+            cargo_type="protein",
+            cargo_name="mCherry-NLS",
+            cargo_kda=28.0,
+            concentration_um=20.0,
+            outcome="success",
+            uptake_value=15.138,
+            uptake_metric="% mCherry+ cells by flow cytometry (YL2-A gate); best in screen, 61x control",
+            mechanism="unknown",
+            citation=HILLMAN_2026,
+            confidence="high",
+            notes="The lab's lead construct; strongest mCherry-NLS delivery in the screen.",
+        ),
+        EvidenceEntry(
+            peptide_name="FUS1",
+            sequence=SEQ["FUS1"],
+            organism="algae",
+            cell_type="Chlamydomonas reinhardtii",
+            cargo_type="protein",
+            cargo_name="mCherry-NLS",
+            cargo_kda=28.0,
+            concentration_um=20.0,
+            outcome="success",
+            uptake_value=8.519,
+            uptake_metric="% mCherry+ cells by flow cytometry (YL2-A gate); 2nd best, 34x control",
+            mechanism="unknown",
+            citation=HILLMAN_2026,
+            confidence="high",
+            notes="A strong second winner with a profile distinct from pVEC (short, aromatic+cationic).",
+        ),
+        EvidenceEntry(
+            peptide_name="SAG1",
+            sequence=SEQ["SAG1"],
+            organism="algae",
+            cell_type="Chlamydomonas reinhardtii",
+            cargo_type="protein",
+            cargo_name="mCherry-NLS",
+            cargo_kda=28.0,
+            concentration_um=20.0,
+            outcome="partial",
+            uptake_value=1.502,
+            uptake_metric="% mCherry+ cells by flow cytometry (YL2-A gate); weak, ~6x control",
+            mechanism="unknown",
+            citation=HILLMAN_2026,
+            confidence="high",
+            notes="Modest delivery, above control but far below pVEC-R6A/FUS1.",
+        ),
+        EvidenceEntry(
+            peptide_name="gAUT",
+            sequence=SEQ["gAUT"],
+            organism="algae",
+            cell_type="Chlamydomonas reinhardtii",
+            cargo_type="protein",
+            cargo_name="mCherry-NLS",
+            cargo_kda=28.0,
+            concentration_um=20.0,
+            outcome="partial",
+            uptake_value=1.024,
+            uptake_metric="% mCherry+ cells by flow cytometry (YL2-A gate); weak, ~4x control",
+            mechanism="unknown",
+            citation=HILLMAN_2026,
+            confidence="high",
+            notes="Modest delivery, above control but far below pVEC-R6A/FUS1.",
+        ),
+        EvidenceEntry(
+            peptide_name="ClWOX",
+            sequence=SEQ["ClWOX"],
+            organism="algae",
+            cell_type="Chlamydomonas reinhardtii",
+            cargo_type="protein",
+            cargo_name="mCherry-NLS",
+            cargo_kda=28.0,
+            concentration_um=20.0,
+            outcome="partial",
+            uptake_value=0.832,
+            uptake_metric="% mCherry+ cells by flow cytometry (YL2-A gate); weak, ~3.4x control",
+            mechanism="unknown",
+            citation=HILLMAN_2026,
+            confidence="high",
+            notes="Notable: the plant-homeoprotein CPP underperforms for mCherry delivery in ALGAE, tempering the ClWOX hypothesis for this organism.",
+        ),
+        EvidenceEntry(
+            peptide_name="MAR1",
+            sequence=SEQ["MAR1"],
+            organism="algae",
+            cell_type="Chlamydomonas reinhardtii",
+            cargo_type="protein",
+            cargo_name="mCherry-NLS",
+            cargo_kda=28.0,
+            concentration_um=20.0,
+            outcome="partial",
+            uptake_value=0.832,
+            uptake_metric="% mCherry+ cells by flow cytometry (YL2-A gate); weak, ~3.4x control",
+            mechanism="unknown",
+            citation=HILLMAN_2026,
+            confidence="high",
+            notes="Proline-rich scaffold; only modestly above control.",
         ),
     ]
     return EvidenceLedger(e)

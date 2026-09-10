@@ -32,6 +32,7 @@ from typing import Any, Literal, Sequence
 
 from .evidence import EvidenceLedger
 from .scoring import AlgaeFitScorer, EvidenceProfile, EvidenceScorer
+from .scoring.evidence import algae_membrane_term
 from .scoring.cargo import cargo_class
 from .scoring.positional import CriticalPositionProfile
 from .screening import load_cppsite3_library
@@ -392,19 +393,21 @@ def usable_delivery(p: EvidenceProfile) -> float:
 
     - **surface_interaction_prior** — electrostatic adsorption (charge bell + local
       cationic-patch term); no adsorption → no uptake.
-    - **membrane_interaction_capacity** (``algae_fit``) — order-sensitive insertion
-      capacity (amphipathic patterning + hydrophobic clustering). Necessary, not
+    - **membrane term** — mechanistic insertion capacity (``algae_fit``: amphipathic
+      patterning + hydrophobic clustering) blended with the ledger-learned
+      algae-winner SAR (``algae_sar``) via ``algae_membrane_term``. Necessary, not
       sufficient for delivery.
     - **selectivity_factor** — cell survival: ``(1 − hemolysis)² × cytotoxicity_factor``.
     - **fusion_confidence** — cloneability of the tested form.
 
     A hypothesis-prioritization score, not an uptake probability. Returns 0 when
     no membrane-interaction signal is available (algae_fit None)."""
-    if p.algae_fit is None:
+    membrane = algae_membrane_term(p.algae_fit, p.algae_sar)
+    if membrane is None:
         return 0.0
     return (
         p.surface_interaction_prior
-        * p.algae_fit
+        * membrane
         * selectivity_factor(p)
         * p.fusion_confidence
     )

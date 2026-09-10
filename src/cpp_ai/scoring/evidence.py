@@ -49,6 +49,28 @@ def evidence_level(candidate: ScreenCandidate) -> str:
     return "experimental CPP (CPPsite3; mostly mammalian, small cargo)"
 
 
+#: How strongly the ledger-learned "algae winner" SAR pulls the combined
+#: membrane-suitability term, vs the mechanistic insertion prior. Tunable; kept
+#: at 0.5 (equal blend) because the ledger is still small (12 peptides), so the
+#: empirical signal informs but does not dictate. See docs/scoring.md.
+ALGAE_SAR_WEIGHT = 0.5
+
+
+def algae_membrane_term(algae_fit: float | None, algae_sar: float | None) -> float | None:
+    """Combined membrane-suitability: the mechanistic insertion prior blended with
+    the ledger-learned algae-winner SAR.
+
+    Returns ``None`` when algae scoring is off (``algae_fit is None``). When no
+    ledger scorer is present (``algae_sar is None``) it falls back to the
+    mechanistic prior alone, so behaviour is unchanged without a ledger.
+    """
+    if algae_fit is None:
+        return None
+    if algae_sar is None:
+        return algae_fit
+    return (1.0 - ALGAE_SAR_WEIGHT) * algae_fit + ALGAE_SAR_WEIGHT * algae_sar
+
+
 @dataclass(frozen=True)
 class EvidenceProfile:
     """All scoring axes for one candidate, kept separate and labelled."""
@@ -63,9 +85,13 @@ class EvidenceProfile:
     global_identity: float
     embedding: float | None
     critical_position: float | None  # scaffold mode; None if not alignable
-    # membrane-insertion propensity (literature-weighted prior, scoring.insertion);
-    # None if algae scoring is not enabled
+    # membrane-insertion propensity (mechanistic literature-weighted prior,
+    # scoring.insertion); None if algae scoring is not enabled
     algae_fit: float | None
+    # ledger-learned "algae winner" resemblance (scoring.context.AlgaeFitScorer,
+    # 0.5 = neutral); None if no ledger scorer. Kept SEPARATE from algae_fit so the
+    # empirical signal stays visible; the two are combined in algae_membrane_term.
+    algae_sar: float | None
     # CPP plausibility
     cpp_probability: float | None
     # applicability domain
@@ -104,6 +130,8 @@ class EvidenceProfile:
             rec["critical_position"] = round(self.critical_position, 3)
         if self.algae_fit is not None:
             rec["algae_fit"] = round(self.algae_fit, 3)
+        if self.algae_sar is not None:
+            rec["algae_sar"] = round(self.algae_sar, 3)
         if self.embedding is not None:
             rec["embedding_context"] = round(self.embedding, 3)
         if self.cpp_probability is not None:
@@ -226,13 +254,20 @@ class EvidenceScorer:
                 None if crit_profile is None
                 else critical_position_score(crit_profile, cand.sequence)
             )
-            # Membrane-insertion propensity from a literature-weighted prior
-            # (scoring.insertion). The ledger-fitted AlgaeFitScorer, if present,
-            # now only flags "algae mode" — it is kept for *validation*, not
-            # weight-setting (n≈6 is too small; see docs/scoring.md).
+            # Two SEPARATE, labelled membrane axes (combined later by
+            # algae_membrane_term):
+            #  - algae_fit: mechanistic insertion propensity (scoring.insertion),
+            #    a hardcoded amphipathicity/hydrophobic-cluster prior.
+            #  - algae_sar: the ledger-fitted AlgaeFitScorer's "algae winner"
+            #    resemblance, now that the ledger carries real algae protein-cargo
+            #    outcomes (still small, so it is blended, not trusted alone).
             algae_fit = (
                 None if self._algae_fit_scorer is None
                 else membrane_interaction_capacity(cand.sequence)
+            )
+            algae_sar = (
+                None if self._algae_fit_scorer is None
+                else self._algae_fit_scorer.score(cand.sequence)
             )
 
             profiles.append(
@@ -247,6 +282,7 @@ class EvidenceScorer:
                     embedding=emb,
                     critical_position=crit,
                     algae_fit=algae_fit,
+                    algae_sar=algae_sar,
                     cpp_probability=cpp,
                     ad_confidence=_ad_confidence(self._nn_distances[i], self._nn_distances),
                     ad_nn_distance=float(self._nn_distances[i]),
@@ -264,7 +300,7 @@ class EvidenceScorer:
                     genetically_encodable=mod.genetically_encodable,
                     fusion_confidence=mod.fusion_confidence,
                     shortlist_score=_shortlist(
-                        p.composite, motif, cpp, algae_fit, safety.safety_factor
+                        p.composite, motif, cpp, algae_fit, algae_sar, safety.safety_factor
                     ),
                 )
             )
@@ -277,17 +313,21 @@ def _shortlist(
     motif: float,
     cpp: float | None,
     algae_fit: float | None,
+    algae_sar: float | None,
     safety_factor: float,
 ) -> float:
     """Transparent convenience ordering: mean of available resemblance/plausibility
     axes, scaled by the graded safety factor. All components are exposed.
 
-    When context fitness (``algae_fit``) is enabled it joins the mean as an equal
-    axis, so ranking shifts toward the empirical algae-winner profile without any
-    single axis silently dominating."""
+    The two membrane axes (mechanistic ``algae_fit`` + ledger-learned ``algae_sar``)
+    are first combined into ONE membrane-suitability term so membrane isn't
+    double-counted against the single physchem/motif axes; that combined term then
+    joins the mean as an equal axis, shifting ranking toward the empirical
+    algae-winner profile without any single axis silently dominating."""
     parts = [physchem, motif]
     if cpp is not None:
         parts.append(cpp)
-    if algae_fit is not None:
-        parts.append(algae_fit)
+    membrane = algae_membrane_term(algae_fit, algae_sar)
+    if membrane is not None:
+        parts.append(membrane)
     return float(np.mean(parts)) * safety_factor

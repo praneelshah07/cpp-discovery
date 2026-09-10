@@ -149,18 +149,21 @@ def test_explain_profile_has_reasons() -> None:
 
 
 def test_usable_delivery_squares_lysis_and_applies_fusion() -> None:
+    from cpp_ai.scoring.evidence import algae_membrane_term
     rec = _rec(algae_mode=True, low_toxicity=False, top_k=None)
     p = rec.profiles[0]
+    membrane = algae_membrane_term(p.algae_fit, p.algae_sar)
     expected = (
-        p.surface_interaction_prior * p.algae_fit  # type: ignore[operator]
+        p.surface_interaction_prior * membrane  # type: ignore[operator]
         * (1 - p.lysis_risk) ** 2 * p.fusion_confidence
     )
     assert abs(usable_delivery(p) - expected) < 1e-9
     # a lytic peptide is penalized harder by the squared term than the linear one
     lytic = next((x for x in rec.profiles if x.lysis_risk > 0.5), None)
     if lytic is not None and lytic.algae_fit is not None:
+        m_lytic = algae_membrane_term(lytic.algae_fit, lytic.algae_sar)
         squared = usable_delivery(lytic)
-        linear = lytic.surface_interaction_prior * lytic.algae_fit * (1 - lytic.lysis_risk) \
+        linear = lytic.surface_interaction_prior * m_lytic * (1 - lytic.lysis_risk) \
             * lytic.fusion_confidence
         assert squared < linear
 
@@ -171,13 +174,15 @@ def test_fusion_advisory_is_informational_not_ranking() -> None:
         charge_density,
         fusion_charge_estimate,
     )
+    from cpp_ai.scoring.evidence import algae_membrane_term
     rec = _rec(algae_mode=True, top_k=None)
     p = rec.profiles[0]
     assert fusion_charge_estimate(p) == p.net_charge + MCHERRY_NET_CHARGE
     assert abs(charge_density(p) - p.net_charge / len(p.sequence)) < 1e-9
     # advisory must NOT affect ranking: usable_delivery ignores cargo charge
+    membrane = algae_membrane_term(p.algae_fit, p.algae_sar)
     assert usable_delivery(p) == (
-        p.surface_interaction_prior * p.algae_fit  # type: ignore[operator]
+        p.surface_interaction_prior * membrane  # type: ignore[operator]
         * (1 - p.lysis_risk) ** 2 * p.fusion_confidence
     )
 

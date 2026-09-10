@@ -27,7 +27,7 @@ import math
 from dataclasses import dataclass
 from typing import Sequence
 
-from ..descriptors import compute_descriptors
+from ..descriptors import blocks_for, compute_descriptors
 
 # Charge-related SAR descriptors excluded from the insertion model — charge is
 # modeled explicitly by scoring.surface (see from_ledger for the rationale).
@@ -148,7 +148,10 @@ class AlgaeFitScorer:
     def explain(self, sequence: str) -> list[FitContribution]:
         if not self._terms:
             return []
-        ds = compute_descriptors(sequence, blocks=None)
+        # Only the blocks that carry this scorer's term descriptors — byte-identical
+        # values to the full battery, but skips ~200 unused features per peptide.
+        needed = blocks_for(tuple(t.descriptor for t in self._terms))
+        ds = compute_descriptors(sequence, blocks=needed)
         total_w = sum(abs(t.weight) for t in self._terms) or 1.0
         out: list[FitContribution] = []
         for t in self._terms:
@@ -180,11 +183,15 @@ def _library_stats(
     """Mean/std of each descriptor across the (canonical) library sequences."""
     from ..core.types import is_canonical_sequence
 
+    # Compute only the blocks that emit the requested descriptors (byte-identical
+    # to the full battery for those features); this is the bulk of the cold-start
+    # cost — the library was being scored on all ~210 features to read ~6.
+    needed = blocks_for(tuple(descriptors))
     cols: dict[str, list[float]] = {d: [] for d in descriptors}
     for seq in sequences:
         if not is_canonical_sequence(seq):
             continue
-        ds = compute_descriptors(seq, blocks=None)
+        ds = compute_descriptors(seq, blocks=needed)
         for d in descriptors:
             if d in ds.values:
                 cols[d].append(ds.values[d])

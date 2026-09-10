@@ -29,6 +29,7 @@ from .analysis import (
 from .base import (
     DESCRIPTOR_REGISTRY,
     DescriptorSet,
+    blocks_for,
     compute_descriptors,
     compute_for_peptide,
     register_descriptor,
@@ -37,6 +38,7 @@ from .base import (
 __all__ = [
     "DESCRIPTOR_REGISTRY",
     "DescriptorSet",
+    "blocks_for",
     "compute_descriptors",
     "compute_for_peptide",
     "register_descriptor",
