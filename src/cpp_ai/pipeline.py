@@ -45,7 +45,14 @@ _DATA = _ROOT / "data" / "raw" / "cppsite3_api.json"
 _LEDGER_PATH = _ROOT / "data" / "curated" / "cpp_evidence_ledger.json"
 _CLASSIFIER = _ROOT / "data" / "processed" / "cpp_classifier.pkl"
 
-RankBy = Literal["blend", "algae_fit"]
+RankBy = Literal["blend", "algae_fit", "algae_v2"]
+
+#: Net charge above which the polycation penalty applies in the v2 recipe. Below
+#: it, charge is neutral (the mCherry screen showed charge does not drive delivery
+#: among moderate peptides); above it, extreme polycations (R9 +9, TAT +8) are
+#: demoted. Tunable — see docs/scoring.md.
+V2_CHARGE_GATE_MAX = 7
+V2_CHARGE_PENALTY = 0.4
 
 # The algal cell wall is a real, first-order barrier — but for a *fixed* cargo it
 # is a constant across candidates (so it cannot differentiate the ranking), and
@@ -277,6 +284,7 @@ class AlgaeRecommendation:
                 "fusion_charge_est": fusion_charge_estimate(p),
             }
             if p.algae_fit is not None:
+                row["delivery_v2"] = round(algae_delivery_v2(p), 3)
                 row["usable_delivery"] = round(usable_delivery(p), 3)
                 row["surface_interaction"] = round(p.surface_interaction_prior, 2)
                 row["membrane_interaction_capacity"] = round(p.algae_fit, 3)
@@ -417,6 +425,29 @@ def _algae_priority(p: EvidenceProfile) -> float:
     return usable_delivery(p)
 
 
+def algae_delivery_v2(p: EvidenceProfile) -> float:
+    """Data-derived delivery score (2026-09), from the lab mCherry-NLS screen.
+
+    ``membrane_insertion × charge_gate``
+
+    - **membrane_insertion** (``algae_fit``: amphipathic patterning + a contiguous
+      hydrophobic run + hydrophobicity) is the primary driver — it rank-ordered
+      the 6-peptide screen essentially perfectly (Spearman 0.94, no fitting).
+    - **charge_gate** demotes only *extreme* polycations (net charge > 7, e.g. R9
+      +9 / TAT +8); moderate charge is neutral, because the screen showed charge
+      does NOT drive delivery (ClWOX is +6 yet weak).
+
+    Deliberately does NOT multiply in the hemolysis prior: that mammalian
+    RBC-trained model mis-flags real algae winners (FUS1 scored 0.81), so it would
+    invert the ranking. Cell-survival is handled at the filter stage
+    (``low_toxicity`` / ``max_lysis_risk``) instead. See docs/scoring.md.
+    """
+    if p.algae_fit is None:
+        return 0.0
+    charge_gate = 1.0 if p.net_charge <= V2_CHARGE_GATE_MAX else V2_CHARGE_PENALTY
+    return p.algae_fit * charge_gate
+
+
 @dataclass(frozen=True)
 class FamilyGroup:
     """A near-duplicate scaffold: a top representative plus all ranked members."""
@@ -510,6 +541,8 @@ def filter_and_rank(
 
     if rank_by == "algae_fit":
         kept.sort(key=lambda p: (_algae_priority(p), p.shortlist_score), reverse=True)
+    elif rank_by == "algae_v2":
+        kept.sort(key=lambda p: (algae_delivery_v2(p), p.shortlist_score), reverse=True)
     # "blend" preserves EvidenceScorer's existing shortlist ordering.
 
     if collapse_families is not None:
@@ -557,7 +590,7 @@ def recommend_for_algae(
         if not fit.is_informative:
             fit = None
 
-    if rank_by == "algae_fit" and fit is None:
+    if rank_by in ("algae_fit", "algae_v2") and fit is None:
         rank_by = "blend"  # honest fallback: no informative algae signal available
 
     scorer = EvidenceScorer(

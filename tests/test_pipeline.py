@@ -192,6 +192,29 @@ def test_usable_delivery_zero_without_algae_fit() -> None:
     assert usable_delivery(rec.profiles[0]) == 0.0
 
 
+def test_algae_delivery_v2_is_membrane_times_charge_gate() -> None:
+    from cpp_ai.pipeline import (
+        V2_CHARGE_GATE_MAX,
+        V2_CHARGE_PENALTY,
+        algae_delivery_v2,
+    )
+    rec = _rec(algae_mode=True, low_toxicity=False, top_k=None)
+    for p in rec.profiles:
+        assert p.algae_fit is not None
+        gate = 1.0 if p.net_charge <= V2_CHARGE_GATE_MAX else V2_CHARGE_PENALTY
+        assert abs(algae_delivery_v2(p) - p.algae_fit * gate) < 1e-9
+    # an extreme polycation is demoted relative to its own ungated membrane score
+    extreme = next((p for p in rec.profiles if p.net_charge > V2_CHARGE_GATE_MAX), None)
+    if extreme is not None:
+        assert algae_delivery_v2(extreme) < extreme.algae_fit
+
+
+def test_algae_delivery_v2_zero_without_algae_fit() -> None:
+    from cpp_ai.pipeline import algae_delivery_v2
+    rec = _rec(algae_mode=False, top_k=1)
+    assert algae_delivery_v2(rec.profiles[0]) == 0.0
+
+
 def test_group_families_representative_and_members() -> None:
     rec = _rec(algae_mode=True, low_toxicity=False, top_k=None)
     groups = group_families(rec.profiles, 0.7)

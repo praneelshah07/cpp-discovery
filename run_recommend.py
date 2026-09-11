@@ -36,6 +36,10 @@ def main() -> None:
     parser.add_argument("--low-toxicity", action="store_true", default=True,
                         help="Filter out high predicted-toxicity peptides (default: on).")
     parser.add_argument("--no-low-toxicity", dest="low_toxicity", action="store_false")
+    parser.add_argument("--rank-by", default="algae_v2",
+                        choices=["blend", "algae_fit", "algae_v2"],
+                        help="Ranking recipe: 'algae_v2' (new, data-derived, default), "
+                             "'algae_fit' (older membrane blend), 'blend' (anchor resemblance).")
     parser.add_argument("--out", default="results.csv", help="Output CSV path.")
     args = parser.parse_args()
 
@@ -44,6 +48,7 @@ def main() -> None:
     rec = recommend_for_algae(
         anchor=args.anchor,
         top_k=args.top_k,
+        rank_by=args.rank_by,
         require_encodable=args.require_encodable,
         low_toxicity=args.low_toxicity,
         collapse_families=(args.collapse_families or None),

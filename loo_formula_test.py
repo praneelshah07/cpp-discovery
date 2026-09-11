@@ -32,7 +32,14 @@ from cpp_ai.scoring.context import AlgaeFitScorer as _AFS  # noqa: F401 (type cl
 from cpp_ai.scoring.cytotoxicity import cytotoxicity_factor
 from cpp_ai.scoring.disruption import hemolysis_prior
 from cpp_ai.scoring.insertion import membrane_interaction_capacity
+from cpp_ai.scoring.safety import charge_risk
 from cpp_ai.scoring.surface import surface_interaction_prior
+
+
+def _acidic_penalty(c) -> float:
+    """Ingredient 4: mild demerit for acidic (D/E) content."""
+    ac = c["desc"].get("frac_D", 0.0) + c["desc"].get("frac_E", 0.0)
+    return max(0.4, 1.0 - 3.0 * ac)
 
 SCREEN = {
     "pVEC-R6A": ("LLIILARRIRKQAHAHSK", 15.138),
@@ -111,7 +118,26 @@ FORMULAS = {
     "gravy_only":                lambda c: c["desc"]["gravy_kyte_doolittle"],
     "charge_only":               lambda c: c["charge"],
     "surface_only":              lambda c: c["surface"],
+    # --- candidate NEW recipes (v2): membrane-led, charge as penalty ---------- #
+    "v2_membrane_only":          lambda c: c["membrane"],
+    "v2_+chargePen":             lambda c: c["membrane"] * (1 - charge_risk(c["charge"])),
+    "v2_+chargePen+acidic":      lambda c: c["membrane"] * (1 - charge_risk(c["charge"])) * _acidic_penalty(c),
+    "v2_+linear_safety":         lambda c: c["membrane"] * (1 - charge_risk(c["charge"])) * _acidic_penalty(c) * (1 - c["hemolysis"]) * c["cytotox"],
+    "v2_+squared_safety":        lambda c: c["membrane"] * (1 - charge_risk(c["charge"])) * _acidic_penalty(c) * (1 - c["hemolysis"]) ** 2 * c["cytotox"],
+    # threshold GATES: 1.0 for normal peptides, only bite at the extremes, so the
+    # delivery ranking is preserved while toxic polycations/lytic peptides are demoted
+    "v2_gated":                  lambda c: c["membrane"] * _acidic_penalty(c) * _lysis_gate(c) * _charge_gate(c),
+    "v2_clean":                  lambda c: c["membrane"] * _acidic_penalty(c) * _charge_gate(c),
+    "v2_final":                  lambda c: c["membrane"] * _charge_gate(c),
 }
+
+
+def _lysis_gate(c) -> float:
+    return 1.0 if c["hemolysis"] < 0.6 else 0.35
+
+
+def _charge_gate(c) -> float:
+    return 1.0 if c["charge"] <= 7 else 0.4
 
 # features used by the fitted (LOO) formulas
 FITTED = {

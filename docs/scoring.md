@@ -106,6 +106,38 @@ R9 wins in mammalian cells but loses to amphipathic pVEC in *Chlamydomonas*.
 This is a hypothesis-sharpener from a small curated dataset, not a validated
 algae predictor — the UI says so.
 
+## The v2 delivery recipe (`rank_by="algae_v2"`, data-derived 2026-09)
+
+Built by testing candidate formulas against the lab's own mCherry-NLS screen (6
+peptides) with a leave-one-out harness (`loo_formula_test.py`). The winner:
+
+    algae_delivery_v2 = membrane_insertion × charge_gate
+
+- **membrane_insertion** (`algae_fit`: amphipathic patterning + a contiguous
+  hydrophobic run + hydrophobicity) is the primary driver. Alone it rank-orders
+  the screen essentially perfectly (Spearman 0.94, *no* fitting). The signal is
+  branched-aliphatic (L/I/V) content arranged on one helical face — see the
+  feature analysis (`analyze_features.py` / `analyze_aminoacids.py`).
+- **charge_gate** is 1.0 up to net charge +7 and `V2_CHARGE_PENALTY` above it.
+  The screen showed charge does NOT drive delivery among moderate peptides
+  (ClWOX is +6 yet weak; rank-corr of charge vs delivery ≈ −0.26), so charge is
+  used only to demote *extreme* polycations (R9 +9, TAT +8).
+
+**Why the hemolysis prior is NOT in the score.** Multiplying the mammalian
+RBC-trained hemolysis model into the ranking inverts it — the model scores real
+algae winners as lytic (FUS1 = 0.81, SAG1 = 0.95) because productive membrane
+insertion and destructive lysis look alike to it. Cell-survival is therefore
+enforced at the *filter* stage (`low_toxicity`, `max_lysis_risk`), not as a
+ranking multiplier. Acidic content and proline were evaluated too: acidic is a
+weak (medium-confidence) demerit left out of the core score to avoid reordering
+noise, and proline is a watch-flag only (rests on one peptide, MAR1).
+
+The current `usable_delivery` (`rank_by="algae_fit"`) is kept for comparison; on
+the same screen it scores Spearman −0.09 because its charge-bell rewards the
+wrong thing. v2 is the recommended mode. Caveat: n=6, one assay/organism — this
+rules formulas OUT more than it proves one; every new screen should re-run the
+harness.
+
 ## In the app
 
 The **"Evidence profile (multi-axis)"** mode (now the default) shows the full
