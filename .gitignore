@@ -36,3 +36,4 @@ embeddings_cache/
 
 # headless run_recommend.py output (generated)
 results.csv
+feature_analysis.csv
